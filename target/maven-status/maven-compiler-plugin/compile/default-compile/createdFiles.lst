@@ -1,0 +1,3 @@
+application\annotations\Singleton.class
+META-INF\services\javax.annotation.processing.Processor
+application\processors\SingletonProcessor.class
