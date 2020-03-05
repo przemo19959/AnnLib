@@ -21,23 +21,11 @@ import javax.lang.model.util.Types;
 import javax.tools.StandardLocation;
 import javax.tools.Diagnostic.Kind;
 
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
 import com.google.auto.service.AutoService;
 
 import application.annotations.Singleton;
-
-import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.IWorkspace;
-import org.eclipse.core.resources.IWorkspaceRoot;
-import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
-import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
-import org.eclipse.jdt.core.dom.CompilationUnit;
 
 @AutoService(Processor.class)
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
@@ -48,6 +36,7 @@ public class SingletonProcessor extends AbstractProcessor {
 	private Elements elements;
 
 	// own API
+	private JavaParser jp;
 	private String projectPath;
 
 	@Override
@@ -59,6 +48,7 @@ public class SingletonProcessor extends AbstractProcessor {
 		elements = processingEnv.getElementUtils();
 
 		setProjectPath(filer);
+		jp=new JavaParser();
 	}
 
 	private void setProjectPath(Filer filer) {
@@ -75,28 +65,16 @@ public class SingletonProcessor extends AbstractProcessor {
 	public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
 		for (TypeElement annotation : annotations) {
 			for (Element element : roundEnv.getElementsAnnotatedWith(annotation)) {
-				log(Kind.WARNING, "Hello3" + element.toString());
-				IWorkspace workspace = ResourcesPlugin.getWorkspace();
-				IWorkspaceRoot root = workspace.getRoot();
-				IProject[] projects = root.getProjects();
-				for (IProject project : projects) {
-					log(Kind.WARNING, project.toString());
+//				log(projectPath+"/"+element.asType().toString().replace(".", "/"));
+				try {
+					CompilationUnit cu=jp.parse(Paths.get(projectPath+"/"+element.asType().toString().replace(".", "/"))).getResult().orElse(null);
+					if(cu!=null) {
+						System.out.println(element.asType().getClass().getSimpleName());
+//						cu.getClassByName(className)
+					}
+				} catch (IOException e) {
+					e.printStackTrace();
 				}
-//		        return null;
-//
-//				IWorkspace workspace = ResourcesPlugin.getWorkspace();
-//				IPath path = Path.fromOSString("/application/main");
-//				IFile file = workspace.getRoot().getFile(path);
-//				CompilationUnit compilationUnit = (CompilationUnit) JavaCore.create(file);
-//				ICompilationUnit element2 = JavaCore.createCompilationUnitFrom(file);
-//
-//				// parse
-//				ASTParser parser = ASTParser.newParser(AST.JLS13);
-//				parser.setResolveBindings(true);
-//				parser.setKind(ASTParser.K_COMPILATION_UNIT);
-//				parser.setBindingsRecovery(true);
-//				parser.setSource(element2);
-//				CompilationUnit astRoot = (CompilationUnit) parser.createAST(null);
 			}
 		}
 		return false;
@@ -109,8 +87,8 @@ public class SingletonProcessor extends AbstractProcessor {
 		return result;
 	}
 
-	private void log(Kind kind, String value) {
+	private void log(String value) {
 		if (messager != null)
-			messager.printMessage(kind, value);
+			messager.printMessage(Kind.ERROR, value);
 	}
 }
