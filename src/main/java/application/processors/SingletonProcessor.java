@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
@@ -29,6 +30,7 @@ import javax.tools.StandardLocation;
 import javax.tools.Diagnostic.Kind;
 
 import com.google.auto.service.AutoService;
+import com.google.common.base.Preconditions;
 
 import application.annotations.Singleton;
 
@@ -43,6 +45,7 @@ public class SingletonProcessor extends AbstractProcessor {
 	// own API
 	private String projectPath;
 	private long start;
+	private boolean codeChanged;
 
 	@Override
 	public synchronized void init(ProcessingEnvironment processingEnv) {
@@ -67,7 +70,6 @@ public class SingletonProcessor extends AbstractProcessor {
 
 	@Override
 	public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-		boolean codeChanged = false;
 		for(TypeElement annotation:annotations) {
 			for(Element element:roundEnv.getElementsAnnotatedWith(annotation)) {
 				codeChanged = false;
@@ -75,64 +77,35 @@ public class SingletonProcessor extends AbstractProcessor {
 				String filePath = projectPath + "/src/" + element.asType().toString().replace(".", "/") + ".java";
 				log(filePath);
 
+				//				log(annotation.asType().getAnnotation(Singleton.class));
+				Singleton a = element.getAnnotation(Singleton.class);
+				String name = a.name();
+
 				start = System.nanoTime();
 				try {
 					Path path = Paths.get(filePath);
 					List<String> lines = Files.readAllLines(path);
 					if(lines != null && lines.size() > 0) {
-						//						lines.forEach(line->log(line));
 						String className = element.getSimpleName().toString();
 
 						//add field
-						String fieldClause = "\tprivate volatile static " + className + " INSTANCE;\n";
-						if(getFirstLineContaining(lines, fieldClause) == null) {
-							String baseElement = getFirstLineContaining(lines, "class " + className);
-							if(baseElement != null) {
-								int baseEleLineIndex = lines.indexOf(baseElement);
-								log("class: " + baseEleLineIndex + "");
-								lines.add(baseEleLineIndex + 1, fieldClause);
-								codeChanged = true;
-							}
-						}
+						List<String> fieldClause = Arrays.asList("\tprivate volatile static " + className + " " + name + ";");
+						addStatementToCode(lines, fieldClause, false, Arrays.asList("class " + className));
+
+						//						log(lines.stream().map(line->">"+line).collect(Collectors.joining("\n")));
 
 						//add private constructor
-						String constructorClause = "\tprivate " + className + "() {\n";
-						if(getFirstLineContaining(lines, constructorClause) == null) {
-							String baseElement = getFirstLineContaining(lines, fieldClause);
-							if(baseElement != null) {
-								int baseEleLineIndex = lines.indexOf(baseElement);
-								log("field: " + baseEleLineIndex + "");
-								lines.add(baseEleLineIndex + 1, "\n");//new line
-								lines.add(baseEleLineIndex + 2, constructorClause + "\t}\n");
-								codeChanged = true;
-							}
-						}
+						List<String> constructorClause = Arrays.asList("\tprivate " + className + "() {", "\t}");
+						addStatementToCode(lines, constructorClause, false, fieldClause);
+
+						//						log(lines.stream().map(line->">"+line).collect(Collectors.joining("\n")));
 
 						//static getInstance
 						List<String> methodClause = Arrays.asList("\tpublic static " + className + " getInstance() {", //
-							"\t\tif(INSTANCE == null) {", "\t\t\tsynchronized (" + className + ".class) {", //
-							"\t\t\t\tif(INSTANCE == null)", "\t\t\t\t\treturn new " + className + "();", //
-							"\t\t\t}", "\t\t}", "\t\treturn INSTANCE;", "\t}");
-						if(getFirstLineContaining(lines, methodClause.get(0)) == null) {
-							String baseElement = getFirstLineContaining(lines, constructorClause);
-							if(baseElement != null) {
-								int baseEleLineIndex = lines.indexOf(baseElement);
-								int numOfOpenedBracket = 1;
-								int i = 1;
-								for(i = 1;;i++) {
-									String line = lines.get(baseEleLineIndex + i);
-									numOfOpenedBracket += getNumOfValuesIfExists(line, '{');
-									numOfOpenedBracket -= getNumOfValuesIfExists(line, '}');
-									if(numOfOpenedBracket == 0)
-										break;
-								}
-								log((baseEleLineIndex + i + 1) + "");
-								lines.add(baseEleLineIndex + i,"\n");//new line
-								lines.addAll(baseEleLineIndex + i + 1, methodClause);
-								codeChanged = true;
-							}
-						}
-
+							"\t\tif(" + name + " == null) {", "\t\t\tsynchronized (" + className + ".class) {", //
+							"\t\t\t\tif(" + name + " == null)", "\t\t\t\t\treturn new " + className + "();", //
+							"\t\t\t}", "\t\t}", "\t\treturn " + name + ";", "\t}");
+						addStatementToCode(lines, methodClause, true, constructorClause);
 					}
 					if(codeChanged)
 						Files.write(path, lines, StandardCharsets.UTF_8);
@@ -143,6 +116,58 @@ public class SingletonProcessor extends AbstractProcessor {
 			}
 		}
 		return true;
+	}
+
+	private List<String> addStatementToCode(List<String> inputCode, List<String> newCode, boolean changingInside, List<String> previousStatement) {
+		if(newCode.size() == 0 || previousStatement.size() == 0)
+			throw new IllegalArgumentException();
+		if(getFirstLineContaining(inputCode, newCode.get(0)) == null) {
+			String baseElement = getFirstLineContaining(inputCode, previousStatement.get(0));
+			if(baseElement != null) {
+				int baseEleLineIndex = inputCode.indexOf(baseElement);
+				int newCodeIndex = baseEleLineIndex + ((previousStatement.size() > 1) ? getIndexOfClosingBracket(inputCode, baseEleLineIndex) : 0);
+				inputCode.add(newCodeIndex + 1, ""); //empty line
+				inputCode.addAll(newCodeIndex + 2, newCode);
+				codeChanged = true;
+			}
+		} else {
+			//TODO - 25 mar 2020: poprawić, tak aby bloki kodów, w których zmieniane są środki działały poprawnie.
+			if(changingInside) {
+				int firstIndex=inputCode.indexOf(getFirstLineContaining(inputCode, newCode.get(0)));
+				for(int i=1;i<newCode.size();i++) {
+					inputCode.set(firstIndex++, newCode.get(i));
+				}
+				codeChanged = true;
+				
+//				for(int i = 0;i < newCode.size();i++) {
+//					if(getFirstLineContaining(inputCode, newCode.get(i)) == null) {
+//						String baseElement = getFirstLineContaining(inputCode, (i == 0) ? previousStatement.get(0) : newCode.get(i - 1));
+//						if(baseElement != null) {
+//							int baseEleLineIndex = inputCode.indexOf(baseElement);
+//							int newCodeIndex = baseEleLineIndex + ((previousStatement.size() > 1) ? getIndexOfClosingBracket(inputCode, baseEleLineIndex) : 0);
+//							inputCode.add(newCodeIndex + 1, ""); //empty line
+//							inputCode.addAll(newCodeIndex + 2, newCode);
+//							codeChanged = true;
+//						}
+//					}
+//				}
+			}
+		}
+
+		return inputCode;
+	}
+
+	private int getIndexOfClosingBracket(List<String> inputCode, int firstStatementIndex) {
+		int numOfOpenedBracket = 1;
+		int i = 1;
+		for(i = 1;;i++) {
+			String line = inputCode.get(firstStatementIndex + i);
+			numOfOpenedBracket += getNumOfValuesIfExists(line, '{');
+			numOfOpenedBracket -= getNumOfValuesIfExists(line, '}');
+			if(numOfOpenedBracket == 0)
+				break;
+		}
+		return i;
 	}
 
 	private int getNumOfValuesIfExists(String line, char value) {
