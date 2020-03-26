@@ -12,4 +12,12 @@ public @interface Singleton {
 	 * name of single instance field in annotated class
 	 */
 	String name() default "INSTANCE";
+	/**
+	 * name of public static method, which returns singleton instance
+	 */
+	String methodName() default "getInstance";
+	/**
+	 * wether getInstance method is thread safe
+	 */
+	boolean threadSafe() default true;
 }

@@ -45,6 +45,7 @@ import application.annotations.Singleton;
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 public class SingletonProcessor extends AbstractProcessor {
 	private static final String GET_INSTANCE_TEMPLATE1 = "if({0} == null) '{'synchronized ({1}.class) '{'if({2} == null)return new {3}();'}}'";
+	private static final String GET_INSTANCE_TEMPLATE2 = "if({0} == null) {0}=new {1}();";
 
 	// Processor API
 	private Messager messager;
@@ -84,9 +85,12 @@ public class SingletonProcessor extends AbstractProcessor {
 				//TODO - 25 mar 2020:coś, zrobić żeby dołączał automatycznie folder zródłowy
 				String filePath = projectPath + "/src/" + element.asType().toString().replace(".", "/") + ".java";
 				log(filePath);
+				//TODO - 26 mar 2020:poprawić, aby wpisywane wartości w atrybuty były walidowane
 
 				Singleton a = element.getAnnotation(Singleton.class);
 				String name = a.name();
+				String methodName=a.methodName();
+				boolean threadSafe=a.threadSafe();
 
 				start = System.currentTimeMillis();
 				try {
@@ -100,6 +104,7 @@ public class SingletonProcessor extends AbstractProcessor {
 						FieldDeclaration fd = new FieldDeclaration().setModifiers(Keyword.PRIVATE, Keyword.VOLATILE, Keyword.STATIC);
 						VariableDeclarator vd = new VariableDeclarator().setType(className).setName(name);
 						fd.addVariable(vd);
+						
 						FieldDeclaration f = cls.getFields().stream()//
 							.filter(fd1 -> fd1.getModifiers().equals(fd.getModifiers()) && //
 											fd1.getVariable(0).getType().equals(fd.getVariable(0).getType()))//
@@ -127,21 +132,21 @@ public class SingletonProcessor extends AbstractProcessor {
 						}
 
 						//create getInstance method
-						String methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE1, name, className, name, className);
+						String methodClause = (threadSafe)?MessageFormat.format(GET_INSTANCE_TEMPLATE1, name, className, name, className):MessageFormat.format(GET_INSTANCE_TEMPLATE2, name,className);
 						MethodDeclaration md = new MethodDeclaration()//
 							.setModifiers(Keyword.PUBLIC, Keyword.STATIC)//
 							.setType(className)//
-							.setName("getInstance");
+							.setName(methodName);
 						BlockStmt body = new BlockStmt();
 						body.addStatement(methodClause);
 						body.addStatement(new ReturnStmt(name));
 						md.setBody(body);
 
-						if(cls.getMethodsByName("getInstance").size() == 0) {
+						if(cls.getMethodsByName(methodName).size() == 0) {
 							cls.addMember(md);
 							codeChanged = true;
 						} else {
-							MethodDeclaration md1 = cls.getMethodsByName("getInstance").get(0);
+							MethodDeclaration md1 = cls.getMethodsByName(methodName).get(0);
 							if(md1.equals(md) == false) {
 								cls.remove(md1);
 								cls.addMember(md);
