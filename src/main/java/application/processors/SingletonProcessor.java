@@ -1,18 +1,15 @@
 package application.processors;
 
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.text.MessageFormat;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
@@ -24,23 +21,35 @@ import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.util.Elements;
-import javax.lang.model.util.Types;
 import javax.tools.StandardLocation;
 import javax.tools.Diagnostic.Kind;
 
+import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.Modifier.Keyword;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.nodeTypes.NodeWithType;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.ast.type.Type;
 import com.google.auto.service.AutoService;
-import com.google.common.base.Preconditions;
 
 import application.annotations.Singleton;
 
 @AutoService(Processor.class)
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 public class SingletonProcessor extends AbstractProcessor {
+	private static final String GET_INSTANCE_TEMPLATE1 = "if({0} == null) '{'synchronized ({1}.class) '{'if({2} == null)return new {3}();'}}'";
+
 	// Processor API
 	private Messager messager;
-	private Types types;
-	private Elements elements;
+	//	private Types types;
+	//	private Elements elements;
 
 	// own API
 	private String projectPath;
@@ -52,8 +61,8 @@ public class SingletonProcessor extends AbstractProcessor {
 		super.init(processingEnv);
 		Filer filer = processingEnv.getFiler();
 		messager = processingEnv.getMessager();
-		types = processingEnv.getTypeUtils();
-		elements = processingEnv.getElementUtils();
+		//		types = processingEnv.getTypeUtils();
+		//		elements = processingEnv.getElementUtils();
 
 		setProjectPath(filer);
 	}
@@ -61,8 +70,7 @@ public class SingletonProcessor extends AbstractProcessor {
 	private void setProjectPath(Filer filer) {
 		try {
 			URI uri = filer.getResource(StandardLocation.SOURCE_OUTPUT, "", "").toUri();
-			projectPath = Paths.get(uri).getParent().toString();
-			projectPath = projectPath.replace("\\", "/");
+			projectPath = Paths.get(uri).getParent().toString().replace("\\", "/");
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -77,109 +85,88 @@ public class SingletonProcessor extends AbstractProcessor {
 				String filePath = projectPath + "/src/" + element.asType().toString().replace(".", "/") + ".java";
 				log(filePath);
 
-				//				log(annotation.asType().getAnnotation(Singleton.class));
 				Singleton a = element.getAnnotation(Singleton.class);
 				String name = a.name();
 
-				start = System.nanoTime();
+				start = System.currentTimeMillis();
 				try {
 					Path path = Paths.get(filePath);
-					List<String> lines = Files.readAllLines(path);
-					if(lines != null && lines.size() > 0) {
-						String className = element.getSimpleName().toString();
+					CompilationUnit cu = StaticJavaParser.parse(path);
+					String className = element.getSimpleName().toString();
+					ClassOrInterfaceDeclaration cls = cu.getClassByName(className).orElse(null);
+					if(cls != null) {
 
-						//add field
-						List<String> fieldClause = Arrays.asList("\tprivate volatile static " + className + " " + name + ";");
-						addStatementToCode(lines, fieldClause, false, Arrays.asList("class " + className));
+						//instance field
+						FieldDeclaration fd = new FieldDeclaration().setModifiers(Keyword.PRIVATE, Keyword.VOLATILE, Keyword.STATIC);
+						VariableDeclarator vd = new VariableDeclarator().setType(className).setName(name);
+						fd.addVariable(vd);
+						FieldDeclaration f = cls.getFields().stream()//
+							.filter(fd1 -> fd1.getModifiers().equals(fd.getModifiers()) && //
+											fd1.getVariable(0).getType().equals(fd.getVariable(0).getType()))//
+							.findFirst().orElse(null);
+						if(f != null) {
+							if(f.getVariable(0).getName().equals(fd.getVariable(0).getName()) == false) {
+								f.getVariable(0).setName(name);
+								codeChanged = true;
+							}
+						} else {
+							cls.addMember(fd);
+							codeChanged = true;
+						}
 
-						//						log(lines.stream().map(line->">"+line).collect(Collectors.joining("\n")));
+						//create constructor
+						if(cls.getDefaultConstructor().orElse(null) == null) {
+							cls.addConstructor(Keyword.PRIVATE);
+							codeChanged = true;
+						} else {
+							ConstructorDeclaration cd = cls.getDefaultConstructor().get();
+							if(cd.getModifiers().contains(Modifier.publicModifier())) {
+								cd.setModifiers(Keyword.PRIVATE);
+								codeChanged = true;
+							}
+						}
 
-						//add private constructor
-						List<String> constructorClause = Arrays.asList("\tprivate " + className + "() {", "\t}");
-						addStatementToCode(lines, constructorClause, false, fieldClause);
+						//create getInstance method
+						String methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE1, name, className, name, className);
+						MethodDeclaration md = new MethodDeclaration()//
+							.setModifiers(Keyword.PUBLIC, Keyword.STATIC)//
+							.setType(className)//
+							.setName("getInstance");
+						BlockStmt body = new BlockStmt();
+						body.addStatement(methodClause);
+						body.addStatement(new ReturnStmt(name));
+						md.setBody(body);
 
-						//						log(lines.stream().map(line->">"+line).collect(Collectors.joining("\n")));
-
-						//static getInstance
-						List<String> methodClause = Arrays.asList("\tpublic static " + className + " getInstance() {", //
-							"\t\tif(" + name + " == null) {", "\t\t\tsynchronized (" + className + ".class) {", //
-							"\t\t\t\tif(" + name + " == null)", "\t\t\t\t\treturn new " + className + "();", //
-							"\t\t\t}", "\t\t}", "\t\treturn " + name + ";", "\t}");
-						addStatementToCode(lines, methodClause, true, constructorClause);
+						if(cls.getMethodsByName("getInstance").size() == 0) {
+							cls.addMember(md);
+							codeChanged = true;
+						} else {
+							MethodDeclaration md1 = cls.getMethodsByName("getInstance").get(0);
+							if(md1.equals(md) == false) {
+								cls.remove(md1);
+								cls.addMember(md);
+								codeChanged = true;
+							}
+						}
+						rewriteCodeIfChanged(codeChanged, path.toFile(), cu.toString());
 					}
-					if(codeChanged)
-						Files.write(path, lines, StandardCharsets.UTF_8);
 				} catch (IOException e1) {
 					e1.printStackTrace();
 				}
-				log((System.nanoTime() - start) + "[ns]");
+				log((System.currentTimeMillis() - start) + "[ms]");
 			}
 		}
 		return true;
 	}
 
-	private List<String> addStatementToCode(List<String> inputCode, List<String> newCode, boolean changingInside, List<String> previousStatement) {
-		if(newCode.size() == 0 || previousStatement.size() == 0)
-			throw new IllegalArgumentException();
-		if(getFirstLineContaining(inputCode, newCode.get(0)) == null) {
-			String baseElement = getFirstLineContaining(inputCode, previousStatement.get(0));
-			if(baseElement != null) {
-				int baseEleLineIndex = inputCode.indexOf(baseElement);
-				int newCodeIndex = baseEleLineIndex + ((previousStatement.size() > 1) ? getIndexOfClosingBracket(inputCode, baseEleLineIndex) : 0);
-				inputCode.add(newCodeIndex + 1, ""); //empty line
-				inputCode.addAll(newCodeIndex + 2, newCode);
-				codeChanged = true;
-			}
-		} else {
-			//TODO - 25 mar 2020: poprawić, tak aby bloki kodów, w których zmieniane są środki działały poprawnie.
-			if(changingInside) {
-				int firstIndex=inputCode.indexOf(getFirstLineContaining(inputCode, newCode.get(0)));
-				for(int i=1;i<newCode.size();i++) {
-					inputCode.set(firstIndex++, newCode.get(i));
-				}
-				codeChanged = true;
-				
-//				for(int i = 0;i < newCode.size();i++) {
-//					if(getFirstLineContaining(inputCode, newCode.get(i)) == null) {
-//						String baseElement = getFirstLineContaining(inputCode, (i == 0) ? previousStatement.get(0) : newCode.get(i - 1));
-//						if(baseElement != null) {
-//							int baseEleLineIndex = inputCode.indexOf(baseElement);
-//							int newCodeIndex = baseEleLineIndex + ((previousStatement.size() > 1) ? getIndexOfClosingBracket(inputCode, baseEleLineIndex) : 0);
-//							inputCode.add(newCodeIndex + 1, ""); //empty line
-//							inputCode.addAll(newCodeIndex + 2, newCode);
-//							codeChanged = true;
-//						}
-//					}
-//				}
+	private void rewriteCodeIfChanged(boolean codeChanged, File file, String newCode) {
+		if(codeChanged) {
+			try (BufferedWriter bw = new BufferedWriter(new FileWriter(file))) {
+				bw.write(newCode);
+			} catch (IOException e) {
+				e.printStackTrace();
 			}
 		}
-
-		return inputCode;
-	}
-
-	private int getIndexOfClosingBracket(List<String> inputCode, int firstStatementIndex) {
-		int numOfOpenedBracket = 1;
-		int i = 1;
-		for(i = 1;;i++) {
-			String line = inputCode.get(firstStatementIndex + i);
-			numOfOpenedBracket += getNumOfValuesIfExists(line, '{');
-			numOfOpenedBracket -= getNumOfValuesIfExists(line, '}');
-			if(numOfOpenedBracket == 0)
-				break;
-		}
-		return i;
-	}
-
-	private int getNumOfValuesIfExists(String line, char value) {
-		if(line.contains(value + ""))
-			return (int) Arrays.stream(line.split("")).filter(s -> s.charAt(0) == value).count();
-		return 0;
-	}
-
-	private String getFirstLineContaining(List<String> lines, String value) {
-		return lines.stream()//
-			.filter(line -> line.contains(value.trim()))//so that whitespaces can be included in value
-			.findFirst().orElse(null);
 	}
 
 	@Override
