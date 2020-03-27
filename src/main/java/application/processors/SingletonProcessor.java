@@ -4,11 +4,13 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
@@ -18,6 +20,7 @@ import javax.annotation.processing.Processor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.tools.StandardLocation;
@@ -31,6 +34,7 @@ import application.services.SingletonService;
 @AutoService(Processor.class)
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 public class SingletonProcessor extends AbstractProcessor {
+	public static final Pattern FIELD_NAME_PATTERN = Pattern.compile("[a-zA-Z_$][a-zA-Z0-9_$]*");
 
 	// Processor API
 	private Messager messager;
@@ -72,18 +76,23 @@ public class SingletonProcessor extends AbstractProcessor {
 
 				Path path = Paths.get(filePath);
 				String newCode = "no code";
-				switch (annotation.getSimpleName().toString()) {
-					case "Singleton" : {
-						start = System.currentTimeMillis();
-						newCode = singletonService.processAnnotation(element.getAnnotation(Singleton.class), //
-							path, element.getSimpleName().toString());
-						log("Singleton: "+(System.currentTimeMillis() - start) + "[ms]");
-						break;
+				try {
+					switch (annotation.getSimpleName().toString()) {
+						case "Singleton" : {
+							start = System.currentTimeMillis();
+							newCode = singletonService.processAnnotation(element, //
+								path, element.getSimpleName().toString());
+							log("Singleton: " + (System.currentTimeMillis() - start) + "[ms]");
+							break;
+						}
+						default :
+							break;
 					}
-					default :
-						break;
+
+					rewriteCodeIfChanged(path.toFile(), newCode);
+				} catch (AnnotationException ae) {
+					messager.printMessage(Kind.ERROR, ae.getMessage(), ae.getAnnotatedElement(), getAnnotationMirror(ae.getAnnotatedElement(), ae.getAnnotationClass()));
 				}
-				rewriteCodeIfChanged(path.toFile(), newCode);
 			}
 		}
 		return true;
@@ -109,5 +118,13 @@ public class SingletonProcessor extends AbstractProcessor {
 	private void log(String value) {
 		if(messager != null)
 			messager.printMessage(Kind.ERROR, value);
+	}
+
+	private <A extends Annotation> AnnotationMirror getAnnotationMirror(Element annotatedElement, Class<A> annotationClass) {
+		for(AnnotationMirror aMirror:annotatedElement.getAnnotationMirrors()) {
+			if(aMirror.getAnnotationType().toString().equals(annotationClass.getCanonicalName()))
+				return aMirror;
+		}
+		return null;
 	}
 }

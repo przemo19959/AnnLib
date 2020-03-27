@@ -20,4 +20,6 @@ public @interface Singleton {
 	 * wether getInstance method is thread safe
 	 */
 	boolean threadSafe() default true;
+	
+	String[] initFields() default {};
 }
