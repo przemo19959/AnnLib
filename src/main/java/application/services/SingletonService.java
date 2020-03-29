@@ -29,10 +29,15 @@ import application.processors.AnnotationException;
 import static application.processors.SingletonProcessor.FIELD_NAME_PATTERN;
 
 public class SingletonService {
+	private static final String CREATE_SINGLETON_INSTANCE = "createSingletonInstance";
 	private static final String NO_FIELD_IN_CLASS = "Field \"{0}\" doesn''t exist in class!";
 	private static final String DI_SET_FIELD = "this.{0}={1};";
-	private static final String GET_INSTANCE_TEMPLATE1 = "if({0} == null) '{'synchronized ({1}.class) '{'if({2} == null)return new {3}({4});'}}'";
-	private static final String GET_INSTANCE_TEMPLATE2 = "if({0} == null) {0}=new {1}({2});";
+	private static final String GET_INSTANCE_TEMPLATE1 = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null)return new {1}();'}}'";
+	private static final String GET_INSTANCE_TEMPLATE2 = "if({0} == null) {0}=new {1}();";
+	private static final String GET_INSTANCE_TEMPLATE1_THROWS = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null) throw new IllegalArgumentException();'}}'";
+	private static final String GET_INSTANCE_TEMPLATE2_THROWS = "if({0} == null) throw new IllegalArgumentException();";
+	private static final String GET_INSTANCE_TEMPLATE1_INIT_FIELDS = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null) {0}=new {1}({2});'}}'";
+	private static final String GET_INSTANCE_TEMPLATE2_INIT_FIELDS = "if({0} == null) {0}=new {1}({2});";
 
 	private boolean codeChanged;
 
@@ -43,9 +48,6 @@ public class SingletonService {
 	private String methodName;
 	private boolean threadSafe;
 	private String[] initFields;
-	
-	//TODO - 27 mar 2020:uporz¹dkowaæ kod i dodaæ, jeszcze metod¹ tworz¹c¹ pojedyncz¹ instacje i pobieraj¹c¹, 
-	//w przypadku, gdy initFields nie jest puste
 
 	public String processAnnotation(Element annotationElement, Path path, String className) throws AnnotationException {
 		this.annotationElement = annotationElement;
@@ -58,21 +60,31 @@ public class SingletonService {
 		methodName = annotation.methodName();
 		if(FIELD_NAME_PATTERN.matcher(methodName).matches() == false)
 			throw new AnnotationException("Method name:	\"" + methodName + "\" violates Java naming rules!", annotationElement, Singleton.class);
-
+		
 		threadSafe = annotation.threadSafe();
 		initFields = annotation.initFields();
 		for(String initField:initFields) {
 			if(FIELD_NAME_PATTERN.matcher(initField).matches() == false)
 				throw new AnnotationException("Field name: \"" + initField + "\" violates Java naming rules!", annotationElement, Singleton.class);
 		}
+		
+		if(methodName.equals(CREATE_SINGLETON_INSTANCE))
+			throw new AnnotationException("Method name:	\"" + methodName + "\" is assigned for another method!", annotationElement, Singleton.class);
 
 		try {
 			CompilationUnit cu = StaticJavaParser.parse(path);
 			ClassOrInterfaceDeclaration cls = cu.getClassByName(className).orElse(null);
 			if(cls != null) {
 				addOrRenameSingletonInstanceField(cls, className);
-				addOrPrivateDefaultConstuctor(cls, initFields);
-				addOrModifyGetInstanceMethod(cls, className);
+				addOrPrivateDefaultConstuctor(cls);
+				addOrModifySingletonMethod(cls, createAndInitSingletonGetInstanceMethod(className)); //for getInstance
+				if(initFields.length>0) {
+					addOrModifySingletonMethod(cls, createAndInitSingletonCreateInstanceMethod(cls, className));
+				}else {
+					if(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).size()>0) {
+						cls.remove(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).get(0));
+					}
+				}
 				if(codeChanged)
 					return cu.toString();
 			}
@@ -82,18 +94,17 @@ public class SingletonService {
 		return "no code";
 	}
 
-	private void addOrRenameSingletonInstanceField(ClassOrInterfaceDeclaration cls, String className) {
-		//create correct fieldDeclaration
+	private FieldDeclaration getCorrectSingletonInstanceField(String className) {
 		FieldDeclaration fd = new FieldDeclaration().setModifiers(Keyword.PRIVATE, Keyword.VOLATILE, Keyword.STATIC);
 		VariableDeclarator vd = new VariableDeclarator().setType(className).setName(name);
 		fd.addVariable(vd);
+		return fd;
+	}
 
-		//find field with same signature (excluding field name)
-		FieldDeclaration f = cls.getFields().stream()//
-			.filter(fd1 -> fd1.getModifiers().equals(fd.getModifiers()) && //
-							fd1.getVariable(0).getType().equals(fd.getVariable(0).getType()))//
-			.findFirst().orElse(null);
-
+	private void addOrRenameSingletonInstanceField(ClassOrInterfaceDeclaration cls, String className) {
+		FieldDeclaration fd = getCorrectSingletonInstanceField(className);
+		FieldDeclaration f = findWhere(cls.getFields(), fd1 -> fd1.getModifiers().equals(fd.getModifiers()) && //
+																fd1.getVariable(0).getType().equals(fd.getVariable(0).getType()));
 		if(f != null) { //if exists, change name to proper
 			if(f.getVariable(0).getName().equals(fd.getVariable(0).getName()) == false) { //if names are different
 				f.getVariable(0).setName(name);
@@ -121,9 +132,8 @@ public class SingletonService {
 		return list.stream().filter(predicate).findFirst().orElse(null);
 	}
 
-	private void addOrPrivateDefaultConstuctor(ClassOrInterfaceDeclaration cls, String[] initFields) throws AnnotationException {
-		ConstructorDeclaration cd = createAndInitSingletonConstructor(cls);//create correct constructorDeclaration
-		//find method with same signature (excluding method name)
+	private void addOrPrivateDefaultConstuctor(ClassOrInterfaceDeclaration cls) throws AnnotationException {
+		ConstructorDeclaration cd = createAndInitSingletonConstructor(cls);
 		ConstructorDeclaration c = findWhere(cls.getConstructors(), cd1 -> cd1.getName().equals(cd.getName()));
 
 		if(c != null) { //if exists, 
@@ -149,8 +159,10 @@ public class SingletonService {
 			BlockStmt cBody = c.getBody();
 			//if body doesn't exist, add
 			if(cBody.isEmpty()) {
-				c.setBody(cd.getBody());
-				codeChanged = true;
+				if(cd.getBody().isEmpty()==false) {
+					c.setBody(cd.getBody());
+					codeChanged = true;
+				}
 			} else {
 				for(Statement st:cd.getBody().getStatements()) {
 					if(cBody.getStatements().contains(st) == false) {
@@ -179,17 +191,24 @@ public class SingletonService {
 		}
 	}
 
-	private MethodDeclaration createAndInitSingletonGetIstanceMethod(ClassOrInterfaceDeclaration cls,String className) throws AnnotationException {
-		String paramList=Arrays.stream(initFields).collect(Collectors.joining(", "));
-		String methodClause = (threadSafe) ? MessageFormat.format(GET_INSTANCE_TEMPLATE1, name, className, name, className,paramList) : MessageFormat.format(GET_INSTANCE_TEMPLATE2, name, className,paramList);
+	private MethodDeclaration createAndInitSingletonGetInstanceMethod(String className) throws AnnotationException {
+		String methodClause = "";
+		if(threadSafe) {
+			if(initFields.length == 0) {
+				methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE1, name, className);
+			} else {
+				methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE1_THROWS, name, className);
+			}
+		} else {
+			if(initFields.length == 0) {
+				methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE2, name, className);
+			} else {
+				methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE2_THROWS, name);
+			}
+		}
 		MethodDeclaration md = new MethodDeclaration().setModifiers(Keyword.PUBLIC, Keyword.STATIC)//
 			.setType(className).setName(methodName);
-		for(String initField:initFields) {
-			FieldDeclaration fd = cls.getFieldByName(initField).orElse(null);
-			if(fd == null)
-				throw new AnnotationException(MessageFormat.format(NO_FIELD_IN_CLASS, initField), annotationElement, Singleton.class);
-			md.addParameter(fd.getVariable(0).getType(), initField);
-		}
+
 		BlockStmt body = new BlockStmt();
 		body.addStatement(methodClause);
 		body.addStatement(new ReturnStmt(name));
@@ -197,28 +216,58 @@ public class SingletonService {
 		return md;
 	}
 
-	private void addOrModifyGetInstanceMethod(ClassOrInterfaceDeclaration cls, String className) throws AnnotationException {
-		MethodDeclaration md = createAndInitSingletonGetIstanceMethod(cls,className);//create correct methodDeclaration
-		//find method with same signature (excluding method name)
-		MethodDeclaration m = findWhere(cls.getMethods(), md1 -> md1.getModifiers().equals(md.getModifiers()) && //
-							md1.getType().equals(md.getType()));
+	private MethodDeclaration createAndInitSingletonCreateInstanceMethod(ClassOrInterfaceDeclaration cls, String className) throws AnnotationException {
+		String paramList = Arrays.stream(initFields).collect(Collectors.joining(", "));
+		String methodClause = "";
+		if(threadSafe) {
+			methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE1_INIT_FIELDS, name, className, paramList);
+		} else {
+			methodClause = MessageFormat.format(GET_INSTANCE_TEMPLATE2_INIT_FIELDS, name, className, paramList);
+		}
+		MethodDeclaration md = new MethodDeclaration().setModifiers(Keyword.PUBLIC, Keyword.STATIC)//
+			.setType("void").setName(CREATE_SINGLETON_INSTANCE);
+
+		for(String initField:initFields) {
+			FieldDeclaration fd = cls.getFieldByName(initField).orElse(null);
+			if(fd == null)
+				throw new AnnotationException(MessageFormat.format(NO_FIELD_IN_CLASS, initField), annotationElement, Singleton.class);
+			md.addParameter(fd.getVariable(0).getType(), initField);
+		}
+
+		BlockStmt body = new BlockStmt();
+		body.addStatement(methodClause);
+		md.setBody(body);
+		return md;
+	}
+
+	private void addOrModifySingletonMethod(ClassOrInterfaceDeclaration cls, MethodDeclaration md) throws AnnotationException {
+		MethodDeclaration m = null;
+		if(md.getNameAsString().equals(CREATE_SINGLETON_INSTANCE) == false) {
+			m = findWhere(cls.getMethods(), md1 -> md1.getModifiers().equals(md.getModifiers()) && //
+													md1.getType().equals(md.getType()));
+		} else {
+			m = findWhere(cls.getMethods(), md1 -> md1.getModifiers().equals(md.getModifiers()) && //
+													md1.getType().equals(md.getType()) && md1.getName().equals(md.getName()));
+		}
 
 		if(m != null) { //if exists, change name and body to proper
-			if(m.getName().equals(md.getName()) == false) { //if names are different
-				m.setName(methodName);
-				codeChanged = true;
+			if(md.getNameAsString().equals(CREATE_SINGLETON_INSTANCE) == false) {
+				if(m.getName().equals(md.getName()) == false) { //if names are different
+					m.setName(methodName);
+					codeChanged = true;
+				}
 			}
-			
+
 			if(initFields.length > 0 && m.getParameters().equals(md.getParameters()) == false) {
 				m.setParameters(md.getParameters());
 				codeChanged = true;
 			}
 
-			if(initFields.length == 0 && m.getParameters().size() > 0) {
-				m.getParameters().clear();
-				codeChanged = true;
-			}
-			
+			//			if(initFields.length == 0 && m.getParameters().size() > 0) {
+			//				m.getParameters().clear();
+			//				codeChanged = true;
+			//			}
+
 			BlockStmt body1 = m.getBody().orElse(null);
 			//if body doesn't exist, add
 			if(body1 == null) {

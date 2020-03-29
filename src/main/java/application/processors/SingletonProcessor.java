@@ -6,9 +6,13 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.MessageFormat;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -34,8 +38,15 @@ import application.services.SingletonService;
 @AutoService(Processor.class)
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 public class SingletonProcessor extends AbstractProcessor {
-	public static final Pattern FIELD_NAME_PATTERN = Pattern.compile("[a-zA-Z_$][a-zA-Z0-9_$]*");
+	private static final String SOURCE_FOLDER_ERROR = "Annotated element must be placed in one of following source folders: {0}!";
+	private static final String[] POSSIBLE_SOURCE_FOLDERS = {"src", "src/main/java"};
+	private static final List<String> PATHS = Arrays.asList("<factorypath>",
+		"<factorypathentry kind=\"WKSPJAR\" id=\"/AnnLib/target/AnnLib-0.0.1-SNAPSHOT.jar\" enabled=\"true\" runInBatchMode=\"false\"/>",
+		"<factorypathentry kind=\"EXTJAR\" id=\"M2_REPO\\com\\github\\javaparser\\javaparser-core\\3.15.17\\javaparser-core-3.15.17.jar\" enabled=\"true\" runInBatchMode=\"false\"/>",
+		"</factorypath>");
 
+	//TODO - 28 mar 2020:dodać, ewentualną walidację, aby nie wpisano słów kluczowych Javy
+	public static final Pattern FIELD_NAME_PATTERN = Pattern.compile("[a-zA-Z_$][a-zA-Z0-9_$]*");
 	// Processor API
 	private Messager messager;
 
@@ -53,7 +64,13 @@ public class SingletonProcessor extends AbstractProcessor {
 		messager = processingEnv.getMessager();
 
 		setProjectPath(filer);
+		fun();
 		singletonService = new SingletonService();
+	}
+
+	private void fun() {
+		log(projectPath);
+		//TODO - 29 mar 2020:dodać, genrację pliku factory path (jeśli nie ma) i dodanie do niego zawartości PATHS
 	}
 
 	private void setProjectPath(Filer filer) {
@@ -69,12 +86,15 @@ public class SingletonProcessor extends AbstractProcessor {
 	public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
 		for(TypeElement annotation:annotations) {
 			for(Element element:roundEnv.getElementsAnnotatedWith(annotation)) {
-				//TODO - 25 mar 2020:coś, zrobić żeby dołączał automatycznie folder zródłowy
-				String filePath = projectPath + "/src/" + element.asType().toString().replace(".", "/") + ".java";
-				log(filePath);
-				//TODO - 26 mar 2020:poprawić, aby wpisywane wartości w atrybuty były walidowane
 
-				Path path = Paths.get(filePath);
+				Path path = getPathFromCorrectSourceFolder(element);
+				if(path == null) {
+					messager.printMessage(Kind.ERROR, MessageFormat.format(SOURCE_FOLDER_ERROR, Arrays.toString(POSSIBLE_SOURCE_FOLDERS)), element, //
+						getAnnotationMirror(element, annotation.getQualifiedName().toString()));
+					return true;
+				}
+
+				log(path.toString());
 				String newCode = "no code";
 				try {
 					switch (annotation.getSimpleName().toString()) {
@@ -108,6 +128,18 @@ public class SingletonProcessor extends AbstractProcessor {
 		}
 	}
 
+	private Path getPathFromCorrectSourceFolder(Element element) {
+		Path path = null;
+		for(String sFolder:POSSIBLE_SOURCE_FOLDERS) {
+			String filePath = projectPath + "/" + sFolder + "/" + element.asType().toString().replace(".", "/") + ".java";
+			path = Paths.get(filePath);
+			if(Files.exists(path))
+				break;
+			path = null;
+		}
+		return path;
+	}
+
 	@Override
 	public Set<String> getSupportedAnnotationTypes() {
 		Set<String> result = new HashSet<>();
@@ -123,6 +155,14 @@ public class SingletonProcessor extends AbstractProcessor {
 	private <A extends Annotation> AnnotationMirror getAnnotationMirror(Element annotatedElement, Class<A> annotationClass) {
 		for(AnnotationMirror aMirror:annotatedElement.getAnnotationMirrors()) {
 			if(aMirror.getAnnotationType().toString().equals(annotationClass.getCanonicalName()))
+				return aMirror;
+		}
+		return null;
+	}
+
+	private <A extends Annotation> AnnotationMirror getAnnotationMirror(Element annotatedElement, String annotationCanonicalName) {
+		for(AnnotationMirror aMirror:annotatedElement.getAnnotationMirrors()) {
+			if(aMirror.getAnnotationType().toString().equals(annotationCanonicalName))
 				return aMirror;
 		}
 		return null;
