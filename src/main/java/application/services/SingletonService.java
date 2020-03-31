@@ -5,7 +5,6 @@ import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Arrays;
 import java.util.List;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import javax.lang.model.element.Element;
@@ -26,7 +25,7 @@ import com.github.javaparser.ast.stmt.Statement;
 
 import application.annotations.Singleton;
 import application.processors.AnnotationException;
-import static application.processors.SingletonProcessor.FIELD_NAME_PATTERN;
+import static application.processors.AnnLibProcessor.FIELD_NAME_PATTERN;
 
 public class SingletonService {
 	private static final String CREATE_SINGLETON_INSTANCE = "createSingletonInstance";
@@ -34,13 +33,12 @@ public class SingletonService {
 	private static final String DI_SET_FIELD = "this.{0}={1};";
 	private static final String GET_INSTANCE_TEMPLATE1 = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null)return new {1}();'}}'";
 	private static final String GET_INSTANCE_TEMPLATE2 = "if({0} == null) {0}=new {1}();";
-	private static final String GET_INSTANCE_TEMPLATE1_THROWS = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null) throw new IllegalArgumentException();'}}'";
-	private static final String GET_INSTANCE_TEMPLATE2_THROWS = "if({0} == null) throw new IllegalArgumentException();";
+	private static final String GET_INSTANCE_TEMPLATE1_THROWS = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null) throw new IllegalArgumentException(\"Use createSingletonInstance method before this one!\");'}}'";
+	private static final String GET_INSTANCE_TEMPLATE2_THROWS = "if({0} == null) throw new IllegalArgumentException(\"Use createSingletonInstance method before this one!\");";
 	private static final String GET_INSTANCE_TEMPLATE1_INIT_FIELDS = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null) {0}=new {1}({2});'}}'";
 	private static final String GET_INSTANCE_TEMPLATE2_INIT_FIELDS = "if({0} == null) {0}=new {1}({2});";
 
 	private boolean codeChanged;
-
 	private Element annotationElement;
 
 	//annotation fields
@@ -103,7 +101,7 @@ public class SingletonService {
 
 	private void addOrRenameSingletonInstanceField(ClassOrInterfaceDeclaration cls, String className) {
 		FieldDeclaration fd = getCorrectSingletonInstanceField(className);
-		FieldDeclaration f = findWhere(cls.getFields(), fd1 -> fd1.getModifiers().equals(fd.getModifiers()) && //
+		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> fd1.getModifiers().equals(fd.getModifiers()) && //
 																fd1.getVariable(0).getType().equals(fd.getVariable(0).getType()));
 		if(f != null) { //if exists, change name to proper
 			if(f.getVariable(0).getName().equals(fd.getVariable(0).getName()) == false) { //if names are different
@@ -128,13 +126,9 @@ public class SingletonService {
 		return cd;
 	}
 
-	private <T> T findWhere(List<T> list, Predicate<T> predicate) {
-		return list.stream().filter(predicate).findFirst().orElse(null);
-	}
-
 	private void addOrPrivateDefaultConstuctor(ClassOrInterfaceDeclaration cls) throws AnnotationException {
 		ConstructorDeclaration cd = createAndInitSingletonConstructor(cls);
-		ConstructorDeclaration c = findWhere(cls.getConstructors(), cd1 -> cd1.getName().equals(cd.getName()));
+		ConstructorDeclaration c = Utils.findWhere(cls.getConstructors(), cd1 -> cd1.getName().equals(cd.getName()));
 
 		if(c != null) { //if exists, 
 			if(c.getModifiers().equals(cd.getModifiers()) == false) {
@@ -243,10 +237,10 @@ public class SingletonService {
 	private void addOrModifySingletonMethod(ClassOrInterfaceDeclaration cls, MethodDeclaration md) throws AnnotationException {
 		MethodDeclaration m = null;
 		if(md.getNameAsString().equals(CREATE_SINGLETON_INSTANCE) == false) {
-			m = findWhere(cls.getMethods(), md1 -> md1.getModifiers().equals(md.getModifiers()) && //
+			m = Utils.findWhere(cls.getMethods(), md1 -> md1.getModifiers().equals(md.getModifiers()) && //
 													md1.getType().equals(md.getType()));
 		} else {
-			m = findWhere(cls.getMethods(), md1 -> md1.getModifiers().equals(md.getModifiers()) && //
+			m = Utils.findWhere(cls.getMethods(), md1 -> md1.getModifiers().equals(md.getModifiers()) && //
 													md1.getType().equals(md.getType()) && md1.getName().equals(md.getName()));
 		}
 

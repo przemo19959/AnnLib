@@ -1,5 +1,4 @@
 application\processors\AnnotationException.class
-application\processors\SingletonProcessor.class
 application\annotations\Singleton.class
 application\services\SingletonService.class
 META-INF\services\javax.annotation.processing.Processor
