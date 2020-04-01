@@ -1,4 +1,8 @@
 application\processors\AnnotationException.class
+application\annotations\ThreadTemplate.class
 application\annotations\Singleton.class
+application\services\Utils.class
+application\processors\AnnLibProcessor.class
+application\services\ThreadTemplateService.class
 application\services\SingletonService.class
 META-INF\services\javax.annotation.processing.Processor

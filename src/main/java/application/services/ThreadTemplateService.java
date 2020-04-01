@@ -2,6 +2,7 @@ package application.services;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -16,11 +17,15 @@ import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.comments.LineComment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
+import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 import application.annotations.ThreadTemplate;
@@ -76,27 +81,28 @@ public class ThreadTemplateService {
 		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> fd1.getVariable(0).getName()
 			.equals(fd.getVariable(0).getName()));
 		if(f != null) {
-			if(f.getModifiers().equals(fd.getModifiers())==false) {
+			if(f.getModifiers().equals(fd.getModifiers()) == false) {
 				f.setModifiers(fd.getModifiers());
-				codeChanged=true;
+				codeChanged = true;
 			}
-			
-			if(f.getVariable(0).getType().equals(fd.getVariable(0).getType())==false) {
+
+			if(f.getVariable(0).getType().equals(fd.getVariable(0).getType()) == false) {
 				f.getVariable(0).setType(fd.getVariable(0).getType());
-				codeChanged=true;
+				codeChanged = true;
 			}
-			
-			Expression exp=f.getVariable(0).getInitializer().orElse(null);
-			if(exp!=null) {
-				if(exp.toString().equals(fd.getVariable(0).getInitializer().get().toString())==false) {
+
+			Expression exp = f.getVariable(0).getInitializer().orElse(null);
+			if(exp != null) {
+				if(exp.toString().equals(fd.getVariable(0).getInitializer().get()
+					.toString()) == false) {
 					f.getVariable(0).setInitializer(fd.getVariable(0).getInitializer().get());
-					codeChanged=true;
+					codeChanged = true;
 				}
-			}else {
+			} else {
 				f.getVariable(0).setInitializer(fd.getVariable(0).getInitializer().get());
-				codeChanged=true;
+				codeChanged = true;
 			}
-			
+
 		} else {
 			cls.addMember(fd);
 			codeChanged = true;
@@ -160,13 +166,27 @@ public class ThreadTemplateService {
 			codeChanged = true;
 		}
 	}
+	
+	private BlockStmt fun(String[] lines) {
+		BlockStmt result=new BlockStmt();
+		for(String line:lines) {
+			result.addStatement(line);
+		}
+		return result;
+	}
 
-	private void addRunMethod(ClassOrInterfaceDeclaration cls) {
+	private void addRunMethod(ClassOrInterfaceDeclaration cls) throws AnnotationException {
+		String methodClause = "try {while(true) {synchronized(this) {while(SUSPEND.get())wait();}if(STOP.get())break;}}catch(InterruptedException ie) {ie.printStackTrace();}";
+		BlockStmt mdBody=new BlockStmt().addStatement(methodClause);
+		
 		MethodDeclaration md = new MethodDeclaration()//
 			.setModifiers(Keyword.PUBLIC)//
 			.setType("void")//
 			.setName("run")//
+			.setBody(mdBody)//
 			.addAnnotation(new MarkerAnnotationExpr(Override.class.getSimpleName()));
+		
+		
 		MethodDeclaration m = Utils.findWhere(cls.getMethods(), md1 -> md1.getName().equals(md
 			.getName()));
 		if(m != null) {
@@ -185,6 +205,27 @@ public class ThreadTemplateService {
 			if(a == null) {
 				m.addAnnotation(md.getAnnotation(0));
 				codeChanged = true;
+			}
+			
+			BlockStmt body=m.getBody().orElse(null);
+			if(body!=null){
+				if(body.isEmpty()) {
+					m.setBody(md.getBody().get());
+					codeChanged=true;
+				}else {
+					//TODO - 1 kwi 2020:tutaj poprawiæ, co w przypadku, gdy zmodyfikowano kod metody
+//					String[] cLines=md.getBody().get().getStatement(0).toString().split("\n");
+//					String[] lines=body.getStatement(0).toString().split("\n");
+					
+//					for(int i=0;i<cLines.length;i++) {
+//						if(lines[i].equals(cLines[i]))
+//					}
+					
+//					throw new AnnotationException(Arrays.toString(lines),annotationElement,ThreadTemplate.class);
+				}
+			}else {
+				m.setBody(md.getBody().get());
+				codeChanged=true;
 			}
 		} else {
 			cls.addMember(md);
