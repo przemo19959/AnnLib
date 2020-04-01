@@ -2,7 +2,6 @@ package application.services;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -17,15 +16,11 @@ import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
-import com.github.javaparser.ast.comments.LineComment;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MarkerAnnotationExpr;
-import com.github.javaparser.ast.expr.TextBlockLiteralExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
-import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
-import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 import application.annotations.ThreadTemplate;
@@ -54,6 +49,7 @@ public class ThreadTemplateService {
 				addControlField(cls, "SUSPEND", true);
 				addControlField(cls, "STOP", false);
 				addConstructor(cls, className);
+				addDoInThreadMethod(cls);
 				addRunMethod(cls);
 				if(codeChanged)
 					return cu.toString();
@@ -167,16 +163,26 @@ public class ThreadTemplateService {
 		}
 	}
 	
-	private BlockStmt fun(String[] lines) {
-		BlockStmt result=new BlockStmt();
-		for(String line:lines) {
-			result.addStatement(line);
+	private void addDoInThreadMethod(ClassOrInterfaceDeclaration cls) {
+		MethodDeclaration md=new MethodDeclaration()//
+				.setModifiers(Keyword.PRIVATE)//
+				.setType("void")//
+				.setName("doInThread");
+		
+		MethodDeclaration m=Utils.findWhere(cls.getMethods(), m1->m1.getName().equals(md.getName()));
+		if(m!=null) {
+			if(m.getModifiers().equals(md.getModifiers()) == false) {
+				m.setModifiers(md.getModifiers());
+				codeChanged = true;
+			}
+		}else {
+			cls.addMember(md);
+			codeChanged=true;
 		}
-		return result;
 	}
 
 	private void addRunMethod(ClassOrInterfaceDeclaration cls) throws AnnotationException {
-		String methodClause = "try {while(true) {synchronized(this) {while(SUSPEND.get())wait();}if(STOP.get())break;}}catch(InterruptedException ie) {ie.printStackTrace();}";
+		String methodClause = "try {while(true) {synchronized(this) {while(SUSPEND.get())wait();}if(STOP.get())break;doInThread();}}catch(InterruptedException ie) {ie.printStackTrace();}";
 		BlockStmt mdBody=new BlockStmt().addStatement(methodClause);
 		
 		MethodDeclaration md = new MethodDeclaration()//
@@ -213,15 +219,10 @@ public class ThreadTemplateService {
 					m.setBody(md.getBody().get());
 					codeChanged=true;
 				}else {
-					//TODO - 1 kwi 2020:tutaj poprawiæ, co w przypadku, gdy zmodyfikowano kod metody
-//					String[] cLines=md.getBody().get().getStatement(0).toString().split("\n");
-//					String[] lines=body.getStatement(0).toString().split("\n");
-					
-//					for(int i=0;i<cLines.length;i++) {
-//						if(lines[i].equals(cLines[i]))
-//					}
-					
-//					throw new AnnotationException(Arrays.toString(lines),annotationElement,ThreadTemplate.class);
+					if(body.equals(md.getBody().get())==false) {
+						m.setBody(md.getBody().get());
+						codeChanged=true;
+					}
 				}
 			}else {
 				m.setBody(md.getBody().get());
