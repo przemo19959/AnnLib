@@ -32,6 +32,8 @@ public class ThreadTemplateService {
 
 	//annotation fields
 	private String threadName;
+	private boolean doBeforeStart;
+	private boolean doAfterStop;
 
 	public String processAnnotation(Element annotationElement, Path path, String className)
 																							throws AnnotationException {
@@ -40,16 +42,37 @@ public class ThreadTemplateService {
 
 		ThreadTemplate annotation = annotationElement.getAnnotation(ThreadTemplate.class);
 		threadName = annotation.threadName();
+		doBeforeStart = annotation.doBeforeStart();
+		doAfterStop = annotation.doAfterStop();
 
 		try {
 			CompilationUnit cu = StaticJavaParser.parse(path);
 			ClassOrInterfaceDeclaration cls = cu.getClassByName(className).orElse(null);
 			if(cls != null) {
 				changeClassSignature(cls);
-				addControlField(cls, "SUSPEND", true);
-				addControlField(cls, "STOP", false);
+				addField(cls, createThreadField());
+				addControlField(cls, createControlField("SUSPEND", true));
 				addConstructor(cls, className);
-				addDoInThreadMethod(cls);
+
+				addSuspendMethod(cls, "suspend", "SUSPEND");
+				addResumeMethod(cls, createResumeMethod());
+				addResumeMethod(cls, createStopMethod());
+
+				addDoInThreadMethod(cls, "doInThread");
+				if(doBeforeStart)
+					addDoInThreadMethod(cls, "doBeforeStart");
+				else {
+					if(cls.getMethodsByName("doBeforeStart").size() > 0) {
+						cls.remove(cls.getMethodsByName("doBeforeStart").get(0));
+					}
+				}
+				if(doAfterStop)
+					addDoInThreadMethod(cls, "doAfterStop");
+				else {
+					if(cls.getMethodsByName("doAfterStop").size() > 0) {
+						cls.remove(cls.getMethodsByName("doAfterStop").get(0));
+					}
+				}
 				addRunMethod(cls);
 				if(codeChanged)
 					return cu.toString();
@@ -58,6 +81,16 @@ public class ThreadTemplateService {
 			e1.printStackTrace();
 		}
 		return "no code";
+	}
+
+	private FieldDeclaration createThreadField() {
+		VariableDeclarator vd = new VariableDeclarator()//
+			.setType(Thread.class.getSimpleName())//
+			.setName("t");
+		FieldDeclaration fd = new FieldDeclaration()//
+			.setModifiers(Keyword.PRIVATE, Keyword.VOLATILE)//
+			.addVariable(vd);
+		return fd;
 	}
 
 	private FieldDeclaration createControlField(String fieldName, boolean value) {
@@ -71,9 +104,28 @@ public class ThreadTemplateService {
 		return fd;
 	}
 
-	private void addControlField(ClassOrInterfaceDeclaration cls, String fieldName, boolean value)
-																									throws AnnotationException {
-		FieldDeclaration fd = createControlField(fieldName, value);
+	private void addField(ClassOrInterfaceDeclaration cls, FieldDeclaration fd)
+																				throws AnnotationException {
+		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> fd1.getVariable(0).getName()
+			.equals(fd.getVariable(0).getName()));
+		if(f != null) {
+			if(f.getModifiers().equals(fd.getModifiers()) == false) {
+				f.setModifiers(fd.getModifiers());
+				codeChanged = true;
+			}
+
+			if(f.getVariable(0).getType().equals(fd.getVariable(0).getType()) == false) {
+				f.getVariable(0).setType(fd.getVariable(0).getType());
+				codeChanged = true;
+			}
+		} else {
+			cls.addMember(fd);
+			codeChanged = true;
+		}
+	}
+
+	private void addControlField(ClassOrInterfaceDeclaration cls, FieldDeclaration fd)
+																						throws AnnotationException {
 		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> fd1.getVariable(0).getName()
 			.equals(fd.getVariable(0).getName()));
 		if(f != null) {
@@ -105,16 +157,17 @@ public class ThreadTemplateService {
 		}
 	}
 
-	private void addConstructor(ClassOrInterfaceDeclaration cls, String className) {
+	private void addConstructor(ClassOrInterfaceDeclaration cls, String className)
+																					throws AnnotationException {
 		String methodClause = "";
 		if(threadName.equals("") == false) {
-			methodClause = "new Thread(this, \"" + threadName + "\").start();";
+			methodClause = "t = new Thread(this, \"" + threadName + "\");";
 		} else {
-			methodClause = "new Thread(this).start();";
+			methodClause = "t = new Thread(this);";
 		}
 		ConstructorDeclaration cd = new ConstructorDeclaration().setName(className).setModifiers(
 			Keyword.PUBLIC);
-		cd.getBody().addStatement(methodClause);
+		cd.getBody().addStatement(methodClause).addStatement("t.start();");
 
 		ConstructorDeclaration c = Utils.findWhere(cls.getConstructors(), c1 -> c1.getName().equals(
 			cd.getName()));
@@ -129,9 +182,9 @@ public class ThreadTemplateService {
 				c.setBody(cd.getBody());
 				codeChanged = true;
 			} else {
+				final String tmp = methodClause;
 				List<Statement> sts = body.getStatements().stream()//
-					.filter(st1 -> st1.toString().startsWith("new Thread(this") && st1.toString()
-						.endsWith(".start();"))//
+					.filter(st1 -> st1.toString().startsWith("t = new Thread(this"))//
 					.collect(Collectors.toList());
 
 				if(sts.size() > 1) {
@@ -139,20 +192,37 @@ public class ThreadTemplateService {
 					body.addStatement(cd.getBody().getStatement(0));
 					codeChanged = true;
 				} else if(sts.size() == 1) {
-					if(body.getStatements().indexOf(sts.get(0)) < body.getStatements().size() - 1) {
-						body.remove(sts.get(0));
-						body.addStatement(cd.getBody().getStatement(0));
+					if(sts.get(0).equals(cd.getBody().getStatement(0)) == false) {
+						body.setStatement(body.getStatements().indexOf(sts.get(0)), cd.getBody()
+							.getStatement(0));
 						codeChanged = true;
 					}
-					if(body.getStatement(body.getStatements().size() - 1).equals(cd.getBody()
-						.getStatement(0)) == false) {
-						body.remove(sts.get(0));
-						body.addStatement(cd.getBody().getStatement(0));
-						codeChanged = true;
-					}
-
 				} else if(sts.size() == 0) {
 					body.addStatement(cd.getBody().getStatement(0));
+					codeChanged = true;
+				}
+
+				sts = body.getStatements().stream()//
+					.filter(st1 -> st1.toString().equals("t.start();"))//
+					.collect(Collectors.toList());
+				if(sts.size() > 1) {
+					sts.forEach(st -> body.remove(st));
+					body.addStatement(cd.getBody().getStatement(1));
+					codeChanged = true;
+				} else if(sts.size() == 0) {
+					body.addStatement(cd.getBody().getStatement(1));
+					codeChanged = true;
+				}
+
+				Statement st1 = Utils.findWhere(body.getStatements(), st -> st.toString().equals(
+					tmp));
+				int index1 = body.getStatements().indexOf(st1);
+				Statement st2 = Utils.findWhere(body.getStatements(), st -> st.toString().equals(
+					"t.start();"));
+				int index2 = body.getStatements().indexOf(st2);
+				if(index2 < index1) {
+					body.setStatement(index1, st2);
+					body.setStatement(index2, st1);
 					codeChanged = true;
 				}
 			}
@@ -162,37 +232,50 @@ public class ThreadTemplateService {
 			codeChanged = true;
 		}
 	}
-	
-	private void addDoInThreadMethod(ClassOrInterfaceDeclaration cls) {
-		MethodDeclaration md=new MethodDeclaration()//
-				.setModifiers(Keyword.PRIVATE)//
-				.setType("void")//
-				.setName("doInThread");
-		
-		MethodDeclaration m=Utils.findWhere(cls.getMethods(), m1->m1.getName().equals(md.getName()));
-		if(m!=null) {
+
+	private void addDoInThreadMethod(ClassOrInterfaceDeclaration cls, String mName) {
+		MethodDeclaration md = new MethodDeclaration()//
+			.setModifiers(Keyword.PRIVATE)//
+			.setType("void")//
+			.setName(mName);
+
+		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> m1.getName().equals(md
+			.getName()));
+		if(m != null) {
 			if(m.getModifiers().equals(md.getModifiers()) == false) {
 				m.setModifiers(md.getModifiers());
 				codeChanged = true;
 			}
-		}else {
+		} else {
 			cls.addMember(md);
-			codeChanged=true;
+			codeChanged = true;
 		}
 	}
 
 	private void addRunMethod(ClassOrInterfaceDeclaration cls) throws AnnotationException {
-		String methodClause = "try {while(true) {synchronized(this) {while(SUSPEND.get())wait();}if(STOP.get())break;doInThread();}}catch(InterruptedException ie) {ie.printStackTrace();}";
-		BlockStmt mdBody=new BlockStmt().addStatement(methodClause);
-		
+		String methodClause = "while(t==thisThread) {" + "try {" + "	if(SUSPEND.get()) {"
+								+ "		synchronized(this) {"
+								+ "			while(SUSPEND.get() && t==thisThread){"
+								+ "				wait();" + "			}" + "		}" + "	}"
+								+ "}catch(InterruptedException ie) {" + "	ie.printStackTrace();"
+								+ "}" + "doInThread();" + "}";
+		BlockStmt mdBody = new BlockStmt();
+		if(doBeforeStart)
+			mdBody.addStatement("doBeforeStart();");
+
+		mdBody.addStatement("Thread thisThread = Thread.currentThread();")//
+			.addStatement(methodClause);
+
+		if(doAfterStop)
+			mdBody.addStatement("doAfterStop();");
+
 		MethodDeclaration md = new MethodDeclaration()//
 			.setModifiers(Keyword.PUBLIC)//
 			.setType("void")//
 			.setName("run")//
 			.setBody(mdBody)//
 			.addAnnotation(new MarkerAnnotationExpr(Override.class.getSimpleName()));
-		
-		
+
 		MethodDeclaration m = Utils.findWhere(cls.getMethods(), md1 -> md1.getName().equals(md
 			.getName()));
 		if(m != null) {
@@ -212,21 +295,106 @@ public class ThreadTemplateService {
 				m.addAnnotation(md.getAnnotation(0));
 				codeChanged = true;
 			}
-			
-			BlockStmt body=m.getBody().orElse(null);
-			if(body!=null){
+
+			BlockStmt body = m.getBody().orElse(null);
+			if(body != null) {
 				if(body.isEmpty()) {
 					m.setBody(md.getBody().get());
-					codeChanged=true;
-				}else {
-					if(body.equals(md.getBody().get())==false) {
+					codeChanged = true;
+				} else {
+					if(body.equals(md.getBody().get()) == false) {
 						m.setBody(md.getBody().get());
-						codeChanged=true;
+						codeChanged = true;
 					}
 				}
-			}else {
+			} else {
 				m.setBody(md.getBody().get());
-				codeChanged=true;
+				codeChanged = true;
+			}
+		} else {
+			cls.addMember(md);
+			codeChanged = true;
+		}
+	}
+
+	private MethodDeclaration createResumeMethod() {
+		String methodClause = "if(SUSPEND.get()) {SUSPEND.set(false);notify();}";
+		return new MethodDeclaration()//
+			.setModifiers(Keyword.PUBLIC, Keyword.SYNCHRONIZED)//
+			.setName("resume")//
+			.setType("void")//
+			.setBody(new BlockStmt().addStatement(methodClause));
+	}
+
+	private MethodDeclaration createStopMethod() {
+		String methodClause = "if(t!=null) {t=null;notify();}";
+		return new MethodDeclaration()//
+			.setModifiers(Keyword.PUBLIC, Keyword.SYNCHRONIZED)//
+			.setName("stop")//
+			.setType("void")//
+			.setBody(new BlockStmt().addStatement(methodClause));
+	}
+
+	private void addResumeMethod(ClassOrInterfaceDeclaration cls, MethodDeclaration md) {
+		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> m1.getName().equals(md
+			.getName()));
+		if(m != null) {
+			if(m.getModifiers().equals(md.getModifiers()) == false) {
+				m.setModifiers(md.getModifiers());
+				codeChanged = true;
+			}
+
+			if(m.getType().equals(md.getType()) == false) {
+				m.setType(md.getType());
+				codeChanged = true;
+			}
+
+			BlockStmt body = m.getBody().orElse(null);
+			if(body != null) {
+				if(body.getStatements().contains(md.getBody().get().getStatement(0)) == false) {
+					body.addStatement(0, md.getBody().get().getStatement(0));
+					codeChanged = true;
+				}
+			} else {
+				m.setBody(md.getBody().get());
+				codeChanged = true;
+			}
+		} else {
+			cls.addMember(md);
+			codeChanged = true;
+		}
+	}
+
+	private void addSuspendMethod(ClassOrInterfaceDeclaration cls, String mName, String flagName) {
+		String methodClause = "if(" + flagName + ".get()==false) " + flagName + ".set(true);";
+		MethodDeclaration md = new MethodDeclaration()//
+			.setModifiers(Keyword.PUBLIC)//
+			.setName(mName)//
+			.setType("void")//
+			.setBody(new BlockStmt().addStatement(methodClause));
+
+		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> m1.getName().equals(md
+			.getName()));
+		if(m != null) {
+			if(m.getModifiers().equals(md.getModifiers()) == false) {
+				m.setModifiers(md.getModifiers());
+				codeChanged = true;
+			}
+
+			if(m.getType().equals(md.getType()) == false) {
+				m.setType(md.getType());
+				codeChanged = true;
+			}
+
+			BlockStmt body = m.getBody().orElse(null);
+			if(body != null) {
+				if(body.getStatements().contains(md.getBody().get().getStatement(0)) == false) {
+					body.addStatement(0, md.getBody().get().getStatement(0));
+					codeChanged = true;
+				}
+			} else {
+				m.setBody(md.getBody().get());
+				codeChanged = true;
 			}
 		} else {
 			cls.addMember(md);
