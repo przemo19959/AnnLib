@@ -224,12 +224,21 @@ public class ThreadTemplateService {
 			.setModifiers(Keyword.PRIVATE)//
 			.setType("void")//
 			.setName(mName);
+		
+		if(mName.equals("doAfterStop")) {
+			md.addParameter(Thread.class.getSimpleName(),"thisThread");
+		}
 
 		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> Utils.nameEqual(m1, md));
 		if(m != null) {
 			if(Utils.modifiersEqual(m, md) == false) {
 				m.setModifiers(md.getModifiers());
 				codeChanged = true;
+			}
+			
+			if(mName.equals("doAfterStop") && m.getParameters().contains(md.getParameter(0))==false) {
+				m.addParameter(md.getParameter(0));
+				codeChanged=true;
 			}
 		} else {
 			cls.addMember(md);
@@ -239,7 +248,7 @@ public class ThreadTemplateService {
 
 	private void addRunMethod(ClassOrInterfaceDeclaration cls) throws AnnotationException {
 		String methodClause = "while(t==thisThread) {try {if(SUSPEND.get()) {synchronized(this) {while(SUSPEND.get() && t==thisThread){wait();}}}}"
-								+ "catch(InterruptedException ie) {ie.printStackTrace();}doInThread();}";
+								+ "catch(InterruptedException ie) {ie.printStackTrace();}if(t==null)break;doInThread();}";
 		BlockStmt mdBody = new BlockStmt();
 		if(doBeforeStart)
 			mdBody.addStatement("doBeforeStart();");
@@ -248,7 +257,7 @@ public class ThreadTemplateService {
 			.addStatement(methodClause);
 
 		if(doAfterStop)
-			mdBody.addStatement("doAfterStop();");
+			mdBody.addStatement("doAfterStop(thisThread);");
 
 		MethodDeclaration md = new MethodDeclaration()//
 			.setModifiers(Keyword.PUBLIC)//
