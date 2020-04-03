@@ -35,8 +35,7 @@ public class ThreadTemplateService {
 	private boolean doBeforeStart;
 	private boolean doAfterStop;
 
-	public String processAnnotation(Element annotationElement, Path path, String className)
-																							throws AnnotationException {
+	public String processAnnotation(Element annotationElement, Path path, String className) throws AnnotationException {
 		this.annotationElement = annotationElement;
 		codeChanged = false;
 
@@ -104,17 +103,15 @@ public class ThreadTemplateService {
 		return fd;
 	}
 
-	private void addField(ClassOrInterfaceDeclaration cls, FieldDeclaration fd)
-																				throws AnnotationException {
-		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> fd1.getVariable(0).getName()
-			.equals(fd.getVariable(0).getName()));
+	private void addField(ClassOrInterfaceDeclaration cls, FieldDeclaration fd) throws AnnotationException {
+		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> Utils.nameEqual(0, fd1, fd));
 		if(f != null) {
-			if(f.getModifiers().equals(fd.getModifiers()) == false) {
+			if(Utils.modifiersEqual(f, fd) == false) {
 				f.setModifiers(fd.getModifiers());
 				codeChanged = true;
 			}
 
-			if(f.getVariable(0).getType().equals(fd.getVariable(0).getType()) == false) {
+			if(Utils.typeEqual(0, f, fd) == false) {
 				f.getVariable(0).setType(fd.getVariable(0).getType());
 				codeChanged = true;
 			}
@@ -124,25 +121,22 @@ public class ThreadTemplateService {
 		}
 	}
 
-	private void addControlField(ClassOrInterfaceDeclaration cls, FieldDeclaration fd)
-																						throws AnnotationException {
-		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> fd1.getVariable(0).getName()
-			.equals(fd.getVariable(0).getName()));
+	private void addControlField(ClassOrInterfaceDeclaration cls, FieldDeclaration fd) throws AnnotationException {
+		FieldDeclaration f = Utils.findWhere(cls.getFields(), fd1 -> Utils.nameEqual(0, fd1, fd));
 		if(f != null) {
-			if(f.getModifiers().equals(fd.getModifiers()) == false) {
+			if(Utils.modifiersEqual(f, fd) == false) {
 				f.setModifiers(fd.getModifiers());
 				codeChanged = true;
 			}
 
-			if(f.getVariable(0).getType().equals(fd.getVariable(0).getType()) == false) {
+			if(Utils.typeEqual(0, f, fd) == false) {
 				f.getVariable(0).setType(fd.getVariable(0).getType());
 				codeChanged = true;
 			}
 
 			Expression exp = f.getVariable(0).getInitializer().orElse(null);
 			if(exp != null) {
-				if(exp.toString().equals(fd.getVariable(0).getInitializer().get()
-					.toString()) == false) {
+				if(exp.toString().equals(fd.getVariable(0).getInitializer().get().toString()) == false) {
 					f.getVariable(0).setInitializer(fd.getVariable(0).getInitializer().get());
 					codeChanged = true;
 				}
@@ -157,22 +151,17 @@ public class ThreadTemplateService {
 		}
 	}
 
-	private void addConstructor(ClassOrInterfaceDeclaration cls, String className)
-																					throws AnnotationException {
-		String methodClause = "";
-		if(threadName.equals("") == false) {
-			methodClause = "t = new Thread(this, \"" + threadName + "\");";
-		} else {
-			methodClause = "t = new Thread(this);";
-		}
-		ConstructorDeclaration cd = new ConstructorDeclaration().setName(className).setModifiers(
-			Keyword.PUBLIC);
+	private void addConstructor(ClassOrInterfaceDeclaration cls, String className) throws AnnotationException {
+		String methodClause = threadName.equals("") ? "t = new Thread(this);" : "t = new Thread(this, \"" + threadName + "\");";
+		ConstructorDeclaration cd = new ConstructorDeclaration()//
+			.setName(className)//
+			.setModifiers(Keyword.PUBLIC);
 		cd.getBody().addStatement(methodClause).addStatement("t.start();");
 
-		ConstructorDeclaration c = Utils.findWhere(cls.getConstructors(), c1 -> c1.getName().equals(
-			cd.getName()));
+		ConstructorDeclaration c = Utils.findWhere(cls.getConstructors(), c1 -> Utils.nameEqual(c1, cd));
+
 		if(c != null) {
-			if(c.getModifiers().equals(cd.getModifiers()) == false) {
+			if(Utils.modifiersEqual(c, cd) == false) {
 				c.setModifiers(cd.getModifiers());
 				codeChanged = true;
 			}
@@ -193,8 +182,7 @@ public class ThreadTemplateService {
 					codeChanged = true;
 				} else if(sts.size() == 1) {
 					if(sts.get(0).equals(cd.getBody().getStatement(0)) == false) {
-						body.setStatement(body.getStatements().indexOf(sts.get(0)), cd.getBody()
-							.getStatement(0));
+						body.setStatement(body.getStatements().indexOf(sts.get(0)), cd.getBody().getStatement(0));
 						codeChanged = true;
 					}
 				} else if(sts.size() == 0) {
@@ -214,11 +202,9 @@ public class ThreadTemplateService {
 					codeChanged = true;
 				}
 
-				Statement st1 = Utils.findWhere(body.getStatements(), st -> st.toString().equals(
-					tmp));
+				Statement st1 = Utils.findWhere(body.getStatements(), st -> st.toString().equals(tmp));
 				int index1 = body.getStatements().indexOf(st1);
-				Statement st2 = Utils.findWhere(body.getStatements(), st -> st.toString().equals(
-					"t.start();"));
+				Statement st2 = Utils.findWhere(body.getStatements(), st -> st.toString().equals("t.start();"));
 				int index2 = body.getStatements().indexOf(st2);
 				if(index2 < index1) {
 					body.setStatement(index1, st2);
@@ -239,10 +225,9 @@ public class ThreadTemplateService {
 			.setType("void")//
 			.setName(mName);
 
-		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> m1.getName().equals(md
-			.getName()));
+		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> Utils.nameEqual(m1, md));
 		if(m != null) {
-			if(m.getModifiers().equals(md.getModifiers()) == false) {
+			if(Utils.modifiersEqual(m, md) == false) {
 				m.setModifiers(md.getModifiers());
 				codeChanged = true;
 			}
@@ -253,12 +238,8 @@ public class ThreadTemplateService {
 	}
 
 	private void addRunMethod(ClassOrInterfaceDeclaration cls) throws AnnotationException {
-		String methodClause = "while(t==thisThread) {" + "try {" + "	if(SUSPEND.get()) {"
-								+ "		synchronized(this) {"
-								+ "			while(SUSPEND.get() && t==thisThread){"
-								+ "				wait();" + "			}" + "		}" + "	}"
-								+ "}catch(InterruptedException ie) {" + "	ie.printStackTrace();"
-								+ "}" + "doInThread();" + "}";
+		String methodClause = "while(t==thisThread) {try {if(SUSPEND.get()) {synchronized(this) {while(SUSPEND.get() && t==thisThread){wait();}}}}"
+								+ "catch(InterruptedException ie) {ie.printStackTrace();}doInThread();}";
 		BlockStmt mdBody = new BlockStmt();
 		if(doBeforeStart)
 			mdBody.addStatement("doBeforeStart();");
@@ -276,21 +257,19 @@ public class ThreadTemplateService {
 			.setBody(mdBody)//
 			.addAnnotation(new MarkerAnnotationExpr(Override.class.getSimpleName()));
 
-		MethodDeclaration m = Utils.findWhere(cls.getMethods(), md1 -> md1.getName().equals(md
-			.getName()));
+		MethodDeclaration m = Utils.findWhere(cls.getMethods(), md1 -> Utils.nameEqual(md1, md));
 		if(m != null) {
-			if(m.getModifiers().equals(md.getModifiers()) == false) {
+			if(Utils.modifiersEqual(m, md) == false) {
 				m.setModifiers(md.getModifiers());
 				codeChanged = true;
 			}
 
-			if(m.getType().equals(md.getType()) == false) {
+			if(Utils.typeEqual(m, md) == false) {
 				m.setType(md.getType());
 				codeChanged = true;
 			}
 
-			AnnotationExpr a = Utils.findWhere(m.getAnnotations(), a1 -> a1.getNameAsString().equals(
-				Override.class.getSimpleName()));
+			AnnotationExpr a = Utils.findWhere(m.getAnnotations(), a1 -> a1.getNameAsString().equals(Override.class.getSimpleName()));
 			if(a == null) {
 				m.addAnnotation(md.getAnnotation(0));
 				codeChanged = true;
@@ -336,15 +315,14 @@ public class ThreadTemplateService {
 	}
 
 	private void addResumeMethod(ClassOrInterfaceDeclaration cls, MethodDeclaration md) {
-		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> m1.getName().equals(md
-			.getName()));
+		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> Utils.nameEqual(m1, md));
 		if(m != null) {
-			if(m.getModifiers().equals(md.getModifiers()) == false) {
+			if(Utils.modifiersEqual(m, md) == false) {
 				m.setModifiers(md.getModifiers());
 				codeChanged = true;
 			}
 
-			if(m.getType().equals(md.getType()) == false) {
+			if(Utils.typeEqual(m, md) == false) {
 				m.setType(md.getType());
 				codeChanged = true;
 			}
@@ -373,15 +351,14 @@ public class ThreadTemplateService {
 			.setType("void")//
 			.setBody(new BlockStmt().addStatement(methodClause));
 
-		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> m1.getName().equals(md
-			.getName()));
+		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> Utils.nameEqual(m1, md));
 		if(m != null) {
-			if(m.getModifiers().equals(md.getModifiers()) == false) {
+			if(Utils.modifiersEqual(m, md) == false) {
 				m.setModifiers(md.getModifiers());
 				codeChanged = true;
 			}
 
-			if(m.getType().equals(md.getType()) == false) {
+			if(Utils.typeEqual(m, md) == false) {
 				m.setType(md.getType());
 				codeChanged = true;
 			}
