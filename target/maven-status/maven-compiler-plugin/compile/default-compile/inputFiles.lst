@@ -1,7 +1,11 @@
 C:\Users\hex\git\AnnLib\src\main\java\application\services\SingletonService.java
 C:\Users\hex\git\AnnLib\src\main\java\application\processors\AnnotationException.java
 C:\Users\hex\git\AnnLib\src\main\java\application\annotations\Singleton.java
+C:\Users\hex\git\AnnLib\src\main\java\application\annotations\GenerateRepositories.java
 C:\Users\hex\git\AnnLib\src\main\java\application\annotations\ThreadTemplate.java
+C:\Users\hex\git\AnnLib\src\main\java\application\services\ProcessorTemplate.java
 C:\Users\hex\git\AnnLib\src\main\java\application\processors\AnnLibProcessor.java
 C:\Users\hex\git\AnnLib\src\main\java\application\services\ThreadTemplateService.java
 C:\Users\hex\git\AnnLib\src\main\java\application\services\Utils.java
+C:\Users\hex\git\AnnLib\src\main\java\application\services\GenerateRepositoriesService.java
+C:\Users\hex\git\AnnLib\src\main\java\application\services\ClassFinder.java

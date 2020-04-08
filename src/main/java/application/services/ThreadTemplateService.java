@@ -26,7 +26,7 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import application.annotations.ThreadTemplate;
 import application.processors.AnnotationException;
 
-public class ThreadTemplateService {
+public class ThreadTemplateService{
 	private boolean codeChanged;
 	private Element annotationElement;
 
@@ -34,7 +34,7 @@ public class ThreadTemplateService {
 	private String threadName;
 	private boolean doBeforeStart;
 	private boolean doAfterStop;
-
+	
 	public String processAnnotation(Element annotationElement, Path path, String className) throws AnnotationException {
 		this.annotationElement = annotationElement;
 		codeChanged = false;

@@ -1,6 +1,5 @@
 package application.services;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Arrays;
@@ -9,8 +8,6 @@ import java.util.stream.Collectors;
 
 import javax.lang.model.element.Element;
 
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier.Keyword;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -27,7 +24,7 @@ import application.annotations.Singleton;
 import application.processors.AnnotationException;
 import static application.processors.AnnLibProcessor.FIELD_NAME_PATTERN;
 
-public class SingletonService {
+public class SingletonService extends ProcessorTemplate<Singleton> {
 	private static final String METHOD_NAME_USED_ERROR = "Method name: \"{0}\" is assigned for another method!";
 	private static final String METHOD_NAME_ERROR = "Method name: \"{0}\" violates Java naming rules!";
 	private static final String FIELD_NAME_ERROR = "Field name: \"{0}\" violates Java naming rules!";
@@ -41,8 +38,8 @@ public class SingletonService {
 	private static final String GET_INSTANCE_TEMPLATE1_INIT_FIELDS = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null) {0}=new {1}({2});'}}'";
 	private static final String GET_INSTANCE_TEMPLATE2_INIT_FIELDS = "if({0} == null) {0}=new {1}({2});";
 
-	private boolean codeChanged;
-	private Element annotationElement;
+	//	private boolean codeChanged;
+	//	private Element annotationElement;
 
 	//annotation fields
 	private String name;
@@ -50,10 +47,56 @@ public class SingletonService {
 	private boolean threadSafe;
 	private String[] initFields;
 
-	public String processAnnotation(Element annotationElement, Path path, String className) throws AnnotationException {
-		this.annotationElement = annotationElement;
-		codeChanged = false;
-		Singleton annotation = annotationElement.getAnnotation(Singleton.class);
+	public String serviceAnnotation(Element annotationElement, Path path) throws AnnotationException {
+		//		this.annotationElement = annotationElement;
+		//		codeChanged = false;
+		return processAnnotation(annotationElement, path, Singleton.class);
+
+		//		Singleton annotation = annotationElement.getAnnotation(Singleton.class);
+		//		name = annotation.name();
+		//		if(FIELD_NAME_PATTERN.matcher(name).matches() == false)
+		//			throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, name), annotationElement, Singleton.class);
+		//
+		//		methodName = annotation.methodName();
+		//		if(FIELD_NAME_PATTERN.matcher(methodName).matches() == false)
+		//			throw new AnnotationException(MessageFormat.format(METHOD_NAME_ERROR, methodName), annotationElement, Singleton.class);
+		//
+		//		threadSafe = annotation.threadSafe();
+		//
+		//		initFields = annotation.initFields();
+		//		for(String initField:initFields) {
+		//			if(FIELD_NAME_PATTERN.matcher(initField).matches() == false)
+		//				throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, initField), annotationElement, Singleton.class);
+		//		}
+		//
+		//		if(methodName.equals(CREATE_SINGLETON_INSTANCE))
+		//			throw new AnnotationException(MessageFormat.format(METHOD_NAME_USED_ERROR, methodName), annotationElement, Singleton.class);
+
+		//		try {
+		//			CompilationUnit cu = StaticJavaParser.parse(path);
+		//			ClassOrInterfaceDeclaration cls = cu.getClassByName(className).orElse(null);
+		//			if(cls != null) {
+		//				addOrRenameSingletonInstanceField(cls, className);
+		//				addOrPrivateDefaultConstuctor(cls);
+		//				addOrModifySingletonMethod(cls, createAndInitSingletonGetInstanceMethod(className)); //for getInstance
+		//				if(initFields.length > 0) {
+		//					addOrModifySingletonMethod(cls, createAndInitSingletonCreateInstanceMethod(cls, className));
+		//				} else {
+		//					if(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).size() > 0) {
+		//						cls.remove(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).get(0));
+		//					}
+		//				}
+		//				if(codeChanged)
+		//					return cu.toString();
+		//			}
+		//		} catch (IOException e1) {
+		//			e1.printStackTrace();
+		//		}
+		//		return "no code";
+	}
+
+	@Override
+	public void step1_injectAnnotation(Singleton annotation) throws AnnotationException {
 		name = annotation.name();
 		if(FIELD_NAME_PATTERN.matcher(name).matches() == false)
 			throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, name), annotationElement, Singleton.class);
@@ -69,31 +112,22 @@ public class SingletonService {
 			if(FIELD_NAME_PATTERN.matcher(initField).matches() == false)
 				throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, initField), annotationElement, Singleton.class);
 		}
-
 		if(methodName.equals(CREATE_SINGLETON_INSTANCE))
 			throw new AnnotationException(MessageFormat.format(METHOD_NAME_USED_ERROR, methodName), annotationElement, Singleton.class);
+	}
 
-		try {
-			CompilationUnit cu = StaticJavaParser.parse(path);
-			ClassOrInterfaceDeclaration cls = cu.getClassByName(className).orElse(null);
-			if(cls != null) {
-				addOrRenameSingletonInstanceField(cls, className);
-				addOrPrivateDefaultConstuctor(cls);
-				addOrModifySingletonMethod(cls, createAndInitSingletonGetInstanceMethod(className)); //for getInstance
-				if(initFields.length > 0) {
-					addOrModifySingletonMethod(cls, createAndInitSingletonCreateInstanceMethod(cls, className));
-				} else {
-					if(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).size() > 0) {
-						cls.remove(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).get(0));
-					}
-				}
-				if(codeChanged)
-					return cu.toString();
+	@Override
+	public void step2_processing(ClassOrInterfaceDeclaration cls, String className) throws AnnotationException {
+		addOrRenameSingletonInstanceField(cls, className);
+		addOrPrivateDefaultConstuctor(cls);
+		addOrModifySingletonMethod(cls, createAndInitSingletonGetInstanceMethod(className)); //for getInstance
+		if(initFields.length > 0) {
+			addOrModifySingletonMethod(cls, createAndInitSingletonCreateInstanceMethod(cls, className));
+		} else {
+			if(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).size() > 0) {
+				cls.remove(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).get(0));
 			}
-		} catch (IOException e1) {
-			e1.printStackTrace();
 		}
-		return "no code";
 	}
 
 	private FieldDeclaration getCorrectSingletonInstanceField(String className) {

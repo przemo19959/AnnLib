@@ -33,8 +33,10 @@ import javax.tools.Diagnostic.Kind;
 
 import com.google.auto.service.AutoService;
 
+import application.annotations.GenerateRepositories;
 import application.annotations.Singleton;
 import application.annotations.ThreadTemplate;
+import application.services.GenerateRepositoriesService;
 import application.services.SingletonService;
 import application.services.ThreadTemplateService;
 
@@ -59,6 +61,7 @@ public class AnnLibProcessor extends AbstractProcessor {
 	//services
 	private SingletonService singletonService;
 	private ThreadTemplateService threadTemplateService;
+	private GenerateRepositoriesService generateRepositoriesService;
 
 	@Override
 	public synchronized void init(ProcessingEnvironment processingEnv) {
@@ -69,7 +72,8 @@ public class AnnLibProcessor extends AbstractProcessor {
 
 		setProjectPath(filer);
 		singletonService = new SingletonService();
-		threadTemplateService=new ThreadTemplateService();
+		threadTemplateService = new ThreadTemplateService();
+		generateRepositoriesService=new GenerateRepositoriesService();
 	}
 
 	private void setProjectPath(Filer filer) {
@@ -108,13 +112,21 @@ public class AnnLibProcessor extends AbstractProcessor {
 					switch (annotation.getSimpleName().toString()) {
 						case "Singleton" : {
 							start = System.currentTimeMillis();
-							newCode = singletonService.processAnnotation(element, path, element.getSimpleName().toString());
+							newCode = singletonService.processAnnotation(element, path, Singleton.class);
 							log("Singleton: " + (System.currentTimeMillis() - start) + "[ms]", Kind.NOTE);
 							break;
-						}case "ThreadTemplate":{
+						}
+						case "ThreadTemplate" : {
 							start = System.currentTimeMillis();
 							newCode = threadTemplateService.processAnnotation(element, path, element.getSimpleName().toString());
 							log("ThreadTemplate: " + (System.currentTimeMillis() - start) + "[ms]", Kind.NOTE);
+							break;
+						}
+						case "GenerateRepositories" : {
+							start = System.currentTimeMillis();
+							newCode = generateRepositoriesService.processAnnotation(element, path, GenerateRepositories.class);
+							log("GenerateRepositories: " + (System.currentTimeMillis() - start) + "[ms]", Kind.NOTE);
+							break;
 						}
 						default :
 							break;
@@ -157,6 +169,7 @@ public class AnnLibProcessor extends AbstractProcessor {
 		Set<String> result = new HashSet<>();
 		result.add(Singleton.class.getCanonicalName());
 		result.add(ThreadTemplate.class.getCanonicalName());
+		result.add(GenerateRepositories.class.getCanonicalName());
 		return result;
 	}
 
