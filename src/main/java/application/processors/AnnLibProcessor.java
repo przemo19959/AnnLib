@@ -28,6 +28,8 @@ import javax.lang.model.SourceVersion;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Elements;
+import javax.lang.model.util.Types;
 import javax.tools.StandardLocation;
 import javax.tools.Diagnostic.Kind;
 
@@ -36,6 +38,7 @@ import com.google.auto.service.AutoService;
 import application.annotations.GenerateRepositories;
 import application.annotations.Singleton;
 import application.annotations.ThreadTemplate;
+import application.services.ClassFinder;
 import application.services.GenerateRepositoriesService;
 import application.services.SingletonService;
 import application.services.ThreadTemplateService;
@@ -52,28 +55,37 @@ public class AnnLibProcessor extends AbstractProcessor {
 	public static final Pattern FIELD_NAME_PATTERN = Pattern.compile("[a-zA-Z_$][a-zA-Z0-9_$]*");
 	// Processor API
 	private Messager messager;
+	private Elements elements;
+	private Types types;
 
 	// own API
 	private String projectPath;
 	private long start;
 	private Map<String, String> options;
 
-	//services
+	//annotation services
 	private SingletonService singletonService;
 	private ThreadTemplateService threadTemplateService;
 	private GenerateRepositoriesService generateRepositoriesService;
+
+	//common services
+	private ClassFinder classFinder;
 
 	@Override
 	public synchronized void init(ProcessingEnvironment processingEnv) {
 		super.init(processingEnv);
 		Filer filer = processingEnv.getFiler();
-		messager = processingEnv.getMessager();
 		options = processingEnv.getOptions();
+		messager = processingEnv.getMessager();
+		elements = processingEnv.getElementUtils();
+		types = processingEnv.getTypeUtils();
 
 		setProjectPath(filer);
+		classFinder = new ClassFinder(projectPath, elements);
+
 		singletonService = new SingletonService();
 		threadTemplateService = new ThreadTemplateService();
-		generateRepositoriesService=new GenerateRepositoriesService();
+		generateRepositoriesService = new GenerateRepositoriesService(classFinder, types);
 	}
 
 	private void setProjectPath(Filer filer) {
@@ -156,8 +168,10 @@ public class AnnLibProcessor extends AbstractProcessor {
 		for(String sFolder:POSSIBLE_SOURCE_FOLDERS) {
 			String filePath = projectPath + sFolder + "/" + element.asType().toString().replace(".", "/") + ".java";
 			path = Paths.get(filePath);
-			if(Files.exists(path))
+			if(Files.exists(path)) {
+				classFinder.setSourceFolderName(sFolder);
 				break;
+			}
 			log("Path " + filePath + " doesn't exist!", Kind.ERROR);
 			path = null;
 		}
