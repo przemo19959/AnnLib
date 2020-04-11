@@ -11,6 +11,8 @@ import java.util.List;
 
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
 
@@ -40,6 +42,7 @@ public class ClassFinder {
 
 	public List<TypeElement> getAnnotatedClassesFromPackage(String packageName, String lookForAnnotation) throws AnnotationException {
 		List<TypeElement> entityClasses = new ArrayList<>();
+		packageName=packageName.replace("/", ".");
 		File folder = getPackageFileBasedOnName(packageName);
 		
 		if(folder != null) {
@@ -47,7 +50,7 @@ public class ClassFinder {
 			for(File file:folder.listFiles()) {
 				if(isFileJavaClass(file)) {
 					cls=elements.getTypeElement(packageName + "." + getFileNameWithoutExtention(file));
-					if(cls != null) {
+					if(cls != null && cls.getKind().equals(ElementKind.CLASS) && cls.getModifiers().contains(Modifier.ABSTRACT)==false) {
 						for(AnnotationMirror a:cls.getAnnotationMirrors()) {
 							if(a.getAnnotationType().asElement().getSimpleName().toString().equals(lookForAnnotation)) {
 								entityClasses.add(cls);

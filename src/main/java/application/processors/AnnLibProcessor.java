@@ -172,7 +172,7 @@ public class AnnLibProcessor extends AbstractProcessor {
 				classFinder.setSourceFolderName(sFolder);
 				break;
 			}
-			log("Path " + filePath + " doesn't exist!", Kind.ERROR);
+			log("Path " + filePath + " doesn't exist!", Kind.NOTE);
 			path = null;
 		}
 		return path;

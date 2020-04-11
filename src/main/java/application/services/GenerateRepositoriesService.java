@@ -40,12 +40,19 @@ public class GenerateRepositoriesService extends ProcessorTemplate<GenerateRepos
 	private static final String EMPTY_REPO_PATH = "Repository package path attribute must not be empty!";
 	private static final String EMPTY_DOMAIN_PATH = "Domain package path attribute must not be empty!";
 	private static final String NO_ID_IN_ENTITY = "Entity \"{0}\" doesn''t have field annotated with @{1}!";
-	//	private static final String LOOK_FOR_ANNOTATION = "Entity";
-	//	private static final String ID = "Id";
+	private static final String LOOK_FOR_ANNOTATION = "Entity";
+	private static final String ID = "Id";
 	//for testing
-	private static final String LOOK_FOR_ANNOTATION = "Singleton";
-	private static final String ID = "XmlElement";
-
+	//	private static final String LOOK_FOR_ANNOTATION = "Singleton";
+	//	private static final String ID = "XmlElement";
+	
+	//TODO - 11 kwi 2020:Wzorczec dla generacji kontrolera
+	//@Controller
+	//@RequestMapping((MyClass.BASE_URL)
+	//public class MyClass{
+	//...
+	//}
+	
 	private ClassFinder classFinder;
 	private Types types;
 
@@ -73,7 +80,7 @@ public class GenerateRepositoriesService extends ProcessorTemplate<GenerateRepos
 		repositoryPackagePath = annotation.repositoryPackagePath();
 		if(repositoryPackagePath.equals(""))
 			throw new AnnotationException(EMPTY_REPO_PATH, annotationElement, GenerateRepositories.class);
-		repositorySuffix=annotation.repositorySuffix();
+		repositorySuffix = annotation.repositorySuffix();
 		if(repositorySuffix.equals("") || repositorySuffix.contains(" "))
 			throw new AnnotationException(SUFFIX_ERROR, annotationElement, GenerateRepositories.class);
 		repositoryInterface = getClassAttribute(annotation);
@@ -164,9 +171,11 @@ public class GenerateRepositoriesService extends ProcessorTemplate<GenerateRepos
 
 		ClassOrInterfaceDeclaration tmp = cu.getInterfaceByName(repoName).orElse(null);
 		if(tmp != null) {
+			
 			ClassOrInterfaceType coit = tmp.getExtendedTypes().stream()//
 				.filter(sn -> sn.getName().equals(coid.getExtendedTypes(0).getName()))//
 				.findFirst().orElse(null);
+			
 			if(coit != null) {
 				NodeList<Type> ta = coit.getTypeArguments().orElse(null);
 				if(ta != null) {
@@ -197,7 +206,7 @@ public class GenerateRepositoriesService extends ProcessorTemplate<GenerateRepos
 			result = true;
 		}
 
-		PackageDeclaration pd = new PackageDeclaration().setName(repositoryPackagePath);
+		PackageDeclaration pd = new PackageDeclaration().setName(repositoryPackagePath.replace("/", "."));
 
 		PackageDeclaration tmp2 = cu.getPackageDeclaration().orElse(null);
 		if(tmp2 != null) {
