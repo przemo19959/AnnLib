@@ -1,12 +1,9 @@
 package application.services;
 
-import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import javax.lang.model.element.Element;
 
 import com.github.javaparser.ast.Modifier.Keyword;
 import com.github.javaparser.ast.NodeList;
@@ -21,7 +18,9 @@ import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
 
 import application.annotations.Singleton;
-import application.processors.AnnotationException;
+import application.services.general.ProcessorTemplate;
+import application.services.general.Utils;
+
 import static application.processors.AnnLibProcessor.FIELD_NAME_PATTERN;
 
 public class SingletonService extends ProcessorTemplate<Singleton> {
@@ -38,86 +37,30 @@ public class SingletonService extends ProcessorTemplate<Singleton> {
 	private static final String GET_INSTANCE_TEMPLATE1_INIT_FIELDS = "if({0} == null) '{'synchronized ({1}.class) '{'if({0} == null) {0}=new {1}({2});'}}'";
 	private static final String GET_INSTANCE_TEMPLATE2_INIT_FIELDS = "if({0} == null) {0}=new {1}({2});";
 
-	//	private boolean codeChanged;
-	//	private Element annotationElement;
-
 	//annotation fields
 	private String name;
 	private String methodName;
 	private boolean threadSafe;
 	private String[] initFields;
 
-	public String serviceAnnotation(Element annotationElement, Path path) throws AnnotationException {
-		//		this.annotationElement = annotationElement;
-		//		codeChanged = false;
-		return processAnnotation(annotationElement, path, Singleton.class);
-
-		//		Singleton annotation = annotationElement.getAnnotation(Singleton.class);
-		//		name = annotation.name();
-		//		if(FIELD_NAME_PATTERN.matcher(name).matches() == false)
-		//			throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, name), annotationElement, Singleton.class);
-		//
-		//		methodName = annotation.methodName();
-		//		if(FIELD_NAME_PATTERN.matcher(methodName).matches() == false)
-		//			throw new AnnotationException(MessageFormat.format(METHOD_NAME_ERROR, methodName), annotationElement, Singleton.class);
-		//
-		//		threadSafe = annotation.threadSafe();
-		//
-		//		initFields = annotation.initFields();
-		//		for(String initField:initFields) {
-		//			if(FIELD_NAME_PATTERN.matcher(initField).matches() == false)
-		//				throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, initField), annotationElement, Singleton.class);
-		//		}
-		//
-		//		if(methodName.equals(CREATE_SINGLETON_INSTANCE))
-		//			throw new AnnotationException(MessageFormat.format(METHOD_NAME_USED_ERROR, methodName), annotationElement, Singleton.class);
-
-		//		try {
-		//			CompilationUnit cu = StaticJavaParser.parse(path);
-		//			ClassOrInterfaceDeclaration cls = cu.getClassByName(className).orElse(null);
-		//			if(cls != null) {
-		//				addOrRenameSingletonInstanceField(cls, className);
-		//				addOrPrivateDefaultConstuctor(cls);
-		//				addOrModifySingletonMethod(cls, createAndInitSingletonGetInstanceMethod(className)); //for getInstance
-		//				if(initFields.length > 0) {
-		//					addOrModifySingletonMethod(cls, createAndInitSingletonCreateInstanceMethod(cls, className));
-		//				} else {
-		//					if(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).size() > 0) {
-		//						cls.remove(cls.getMethodsByName(CREATE_SINGLETON_INSTANCE).get(0));
-		//					}
-		//				}
-		//				if(codeChanged)
-		//					return cu.toString();
-		//			}
-		//		} catch (IOException e1) {
-		//			e1.printStackTrace();
-		//		}
-		//		return "no code";
-	}
-
 	@Override
-	public void step1_injectAnnotation(Singleton annotation) throws AnnotationException {
+	public void step1_injectAnnotation(Singleton annotation){
 		name = annotation.name();
-		if(FIELD_NAME_PATTERN.matcher(name).matches() == false)
-			throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, name), annotationElement, Singleton.class);
+		checkArgument(FIELD_NAME_PATTERN.matcher(name).matches(), MessageFormat.format(FIELD_NAME_ERROR, name));
 
 		methodName = annotation.methodName();
-		if(FIELD_NAME_PATTERN.matcher(methodName).matches() == false)
-			throw new AnnotationException(MessageFormat.format(METHOD_NAME_ERROR, methodName), annotationElement, Singleton.class);
+		checkArgument(FIELD_NAME_PATTERN.matcher(methodName).matches(), MessageFormat.format(METHOD_NAME_ERROR, methodName));
 
 		threadSafe = annotation.threadSafe();
-
 		initFields = annotation.initFields();
 		for(String initField:initFields) {
-			if(FIELD_NAME_PATTERN.matcher(initField).matches() == false)
-				throw new AnnotationException(MessageFormat.format(FIELD_NAME_ERROR, initField), annotationElement, Singleton.class);
+			checkArgument(FIELD_NAME_PATTERN.matcher(initField).matches(), MessageFormat.format(FIELD_NAME_ERROR, initField));
 		}
-		if(methodName.equals(CREATE_SINGLETON_INSTANCE))
-			throw new AnnotationException(MessageFormat.format(METHOD_NAME_USED_ERROR, methodName), annotationElement, Singleton.class);
+		checkArgument(methodName.equals(CREATE_SINGLETON_INSTANCE)==false, MessageFormat.format(METHOD_NAME_USED_ERROR, methodName));
 	}
 
 	@Override
-	public void step2_processing(ClassOrInterfaceDeclaration cls, String className) throws AnnotationException {
+	public void step2_processing(ClassOrInterfaceDeclaration cls, String className){
 		addOrRenameSingletonInstanceField(cls, className);
 		addOrPrivateDefaultConstuctor(cls);
 		addOrModifySingletonMethod(cls, createAndInitSingletonGetInstanceMethod(className)); //for getInstance
@@ -151,21 +94,20 @@ public class SingletonService extends ProcessorTemplate<Singleton> {
 		}
 	}
 
-	private ConstructorDeclaration createAndInitSingletonConstructor(ClassOrInterfaceDeclaration cls) throws AnnotationException {
+	private ConstructorDeclaration createAndInitSingletonConstructor(ClassOrInterfaceDeclaration cls){
 		ConstructorDeclaration cd = new ConstructorDeclaration()//
 			.setModifiers(Keyword.PRIVATE)//
 			.setName(cls.getName());
 		for(String initField:initFields) {
 			FieldDeclaration fd = cls.getFieldByName(initField).orElse(null);
-			if(fd == null)
-				throw new AnnotationException(MessageFormat.format(NO_FIELD_IN_CLASS, initField), annotationElement, Singleton.class);
+			checkArgument(fd != null, MessageFormat.format(NO_FIELD_IN_CLASS, initField));
 			cd.addParameter(fd.getVariable(0).getType(), initField);
 			cd.getBody().addStatement(MessageFormat.format(DI_SET_FIELD, initField, initField));
 		}
 		return cd;
 	}
 
-	private void addOrPrivateDefaultConstuctor(ClassOrInterfaceDeclaration cls) throws AnnotationException {
+	private void addOrPrivateDefaultConstuctor(ClassOrInterfaceDeclaration cls){
 		ConstructorDeclaration cd = createAndInitSingletonConstructor(cls);
 		ConstructorDeclaration c = Utils.findWhere(cls.getConstructors(), cd1 -> Utils.nameEqual(cd1, cd));
 
@@ -224,7 +166,7 @@ public class SingletonService extends ProcessorTemplate<Singleton> {
 		}
 	}
 
-	private MethodDeclaration createAndInitSingletonGetInstanceMethod(String className) throws AnnotationException {
+	private MethodDeclaration createAndInitSingletonGetInstanceMethod(String className){
 		String methodClause = "";
 		if(threadSafe) {
 			methodClause = MessageFormat.format((initFields.length == 0) ? GET_INSTANCE_TEMPLATE1 : GET_INSTANCE_TEMPLATE1_THROWS, name, className);
@@ -241,7 +183,7 @@ public class SingletonService extends ProcessorTemplate<Singleton> {
 		return md;
 	}
 
-	private MethodDeclaration createAndInitSingletonCreateInstanceMethod(ClassOrInterfaceDeclaration cls, String className) throws AnnotationException {
+	private MethodDeclaration createAndInitSingletonCreateInstanceMethod(ClassOrInterfaceDeclaration cls, String className){
 		String paramList = Arrays.stream(initFields).collect(Collectors.joining(", "));
 		String methodClause = MessageFormat.format(threadSafe ? GET_INSTANCE_TEMPLATE1_INIT_FIELDS : GET_INSTANCE_TEMPLATE2_INIT_FIELDS, name, className, paramList);
 
@@ -252,8 +194,7 @@ public class SingletonService extends ProcessorTemplate<Singleton> {
 
 		for(String initField:initFields) {
 			FieldDeclaration fd = cls.getFieldByName(initField).orElse(null);
-			if(fd == null)
-				throw new AnnotationException(MessageFormat.format(NO_FIELD_IN_CLASS, initField), annotationElement, Singleton.class);
+			checkArgument(fd!=null, MessageFormat.format(NO_FIELD_IN_CLASS, initField));
 			md.addParameter(fd.getVariable(0).getType(), initField);
 		}
 
@@ -261,7 +202,7 @@ public class SingletonService extends ProcessorTemplate<Singleton> {
 		return md;
 	}
 
-	private void addOrModifySingletonMethod(ClassOrInterfaceDeclaration cls, MethodDeclaration md) throws AnnotationException {
+	private void addOrModifySingletonMethod(ClassOrInterfaceDeclaration cls, MethodDeclaration md){
 		MethodDeclaration m = null;
 		if(md.getNameAsString().equals(CREATE_SINGLETON_INSTANCE) == false) {
 			m = Utils.findWhere(cls.getMethods(), md1 -> Utils.modifiersEqual(md1, md) && Utils.typeEqual(md1, md));

@@ -1,15 +1,9 @@
 package application.services;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-import javax.lang.model.element.Element;
-
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier.Keyword;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -25,61 +19,50 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 import application.annotations.ThreadTemplate;
 import application.processors.AnnotationException;
+import application.services.general.ProcessorTemplate;
+import application.services.general.Utils;
 
-public class ThreadTemplateService{
-	private boolean codeChanged;
-	private Element annotationElement;
+public class ThreadTemplateService extends ProcessorTemplate<ThreadTemplate> {
 
 	//annotation fields
 	private String threadName;
 	private boolean doBeforeStart;
 	private boolean doAfterStop;
-	
-	public String processAnnotation(Element annotationElement, Path path, String className) throws AnnotationException {
-		this.annotationElement = annotationElement;
-		codeChanged = false;
 
-		ThreadTemplate annotation = annotationElement.getAnnotation(ThreadTemplate.class);
+	@Override
+	public void step1_injectAnnotation(ThreadTemplate annotation) {
 		threadName = annotation.threadName();
 		doBeforeStart = annotation.doBeforeStart();
 		doAfterStop = annotation.doAfterStop();
+	}
 
-		try {
-			CompilationUnit cu = StaticJavaParser.parse(path);
-			ClassOrInterfaceDeclaration cls = cu.getClassByName(className).orElse(null);
-			if(cls != null) {
-				changeClassSignature(cls);
-				addField(cls, createThreadField());
-				addControlField(cls, createControlField("SUSPEND", true));
-				addConstructor(cls, className);
+	@Override
+	public void step2_processing(ClassOrInterfaceDeclaration cls, String className) {
+		changeClassSignature(cls);
+		addField(cls, createThreadField());
+		addControlField(cls, createControlField("SUSPEND", true));
+		addConstructor(cls, className);
 
-				addSuspendMethod(cls, "suspend", "SUSPEND");
-				addResumeMethod(cls, createResumeMethod());
-				addResumeMethod(cls, createStopMethod());
+		addSuspendMethod(cls, "suspend", "SUSPEND");
+		addResumeMethod(cls, createResumeMethod());
+		addResumeMethod(cls, createStopMethod());
 
-				addDoInThreadMethod(cls, "doInThread");
-				if(doBeforeStart)
-					addDoInThreadMethod(cls, "doBeforeStart");
-				else {
-					if(cls.getMethodsByName("doBeforeStart").size() > 0) {
-						cls.remove(cls.getMethodsByName("doBeforeStart").get(0));
-					}
-				}
-				if(doAfterStop)
-					addDoInThreadMethod(cls, "doAfterStop");
-				else {
-					if(cls.getMethodsByName("doAfterStop").size() > 0) {
-						cls.remove(cls.getMethodsByName("doAfterStop").get(0));
-					}
-				}
-				addRunMethod(cls);
-				if(codeChanged)
-					return cu.toString();
+		addDoInThreadMethod(cls, "doInThread");
+		if(doBeforeStart)
+			addDoInThreadMethod(cls, "doBeforeStart");
+		else {
+			if(cls.getMethodsByName("doBeforeStart").size() > 0) {
+				cls.remove(cls.getMethodsByName("doBeforeStart").get(0));
 			}
-		} catch (IOException e1) {
-			e1.printStackTrace();
 		}
-		return "no code";
+		if(doAfterStop)
+			addDoInThreadMethod(cls, "doAfterStop");
+		else {
+			if(cls.getMethodsByName("doAfterStop").size() > 0) {
+				cls.remove(cls.getMethodsByName("doAfterStop").get(0));
+			}
+		}
+		addRunMethod(cls);
 	}
 
 	private FieldDeclaration createThreadField() {
@@ -154,18 +137,12 @@ public class ThreadTemplateService{
 	private void addConstructor(ClassOrInterfaceDeclaration cls, String className) throws AnnotationException {
 		String methodClause = threadName.equals("") ? "t = new Thread(this);" : "t = new Thread(this, \"" + threadName + "\");";
 		ConstructorDeclaration cd = new ConstructorDeclaration()//
-			.setName(className)//
-			.setModifiers(Keyword.PUBLIC);
+			.setName(className);//
 		cd.getBody().addStatement(methodClause).addStatement("t.start();");
 
 		ConstructorDeclaration c = Utils.findWhere(cls.getConstructors(), c1 -> Utils.nameEqual(c1, cd));
 
 		if(c != null) {
-			if(Utils.modifiersEqual(c, cd) == false) {
-				c.setModifiers(cd.getModifiers());
-				codeChanged = true;
-			}
-
 			BlockStmt body = c.getBody();
 			if(body.isEmpty()) {
 				c.setBody(cd.getBody());
@@ -224,9 +201,9 @@ public class ThreadTemplateService{
 			.setModifiers(Keyword.PRIVATE)//
 			.setType("void")//
 			.setName(mName);
-		
+
 		if(mName.equals("doAfterStop")) {
-			md.addParameter(Thread.class.getSimpleName(),"thisThread");
+			md.addParameter(Thread.class.getSimpleName(), "thisThread");
 		}
 
 		MethodDeclaration m = Utils.findWhere(cls.getMethods(), m1 -> Utils.nameEqual(m1, md));
@@ -235,10 +212,10 @@ public class ThreadTemplateService{
 				m.setModifiers(md.getModifiers());
 				codeChanged = true;
 			}
-			
-			if(mName.equals("doAfterStop") && m.getParameters().contains(md.getParameter(0))==false) {
+
+			if(mName.equals("doAfterStop") && m.getParameters().contains(md.getParameter(0)) == false) {
 				m.addParameter(md.getParameter(0));
-				codeChanged=true;
+				codeChanged = true;
 			}
 		} else {
 			cls.addMember(md);
@@ -389,8 +366,8 @@ public class ThreadTemplateService{
 	}
 
 	private void changeClassSignature(ClassOrInterfaceDeclaration cls) {
-		ClassOrInterfaceType type = new ClassOrInterfaceType();
-		type.setName(Runnable.class.getSimpleName());
+		ClassOrInterfaceType type = new ClassOrInterfaceType()//
+			.setName(Runnable.class.getSimpleName());
 
 		if(cls.getImplementedTypes().contains(type) == false) {
 			cls.addImplementedType(Runnable.class);

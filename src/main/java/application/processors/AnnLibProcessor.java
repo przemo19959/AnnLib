@@ -11,10 +11,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.MessageFormat;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
@@ -35,18 +38,21 @@ import javax.tools.Diagnostic.Kind;
 
 import com.google.auto.service.AutoService;
 
+import application.annotations.GenerateControllers;
 import application.annotations.GenerateRepositories;
 import application.annotations.Singleton;
 import application.annotations.ThreadTemplate;
-import application.services.ClassFinder;
+import application.services.GenerateControllersService;
 import application.services.GenerateRepositoriesService;
 import application.services.SingletonService;
 import application.services.ThreadTemplateService;
+import application.services.general.ClassFinder;
 
 @AutoService(Processor.class)
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 @SupportedOptions(value = {"name"})
 public class AnnLibProcessor extends AbstractProcessor {
+	private static final String NO_CODE = "no code";
 	private static final String NAME_OPTION_ERROR = "Processor \"name\" option doesn't exist. Define source output generated directory in project!";
 	private static final String SOURCE_FOLDER_ERROR = "Annotated element must be placed in one of following source folders: {0}!";
 	private static final String[] POSSIBLE_SOURCE_FOLDERS = {"src", "src/main/java"};
@@ -62,11 +68,13 @@ public class AnnLibProcessor extends AbstractProcessor {
 	private String projectPath;
 	private long start;
 	private Map<String, String> options;
+	private Map<String, Function<OperationDTO, String>> operations;
 
 	//annotation services
 	private SingletonService singletonService;
 	private ThreadTemplateService threadTemplateService;
 	private GenerateRepositoriesService generateRepositoriesService;
+	private GenerateControllersService generateControllersService;
 
 	//common services
 	private ClassFinder classFinder;
@@ -86,6 +94,9 @@ public class AnnLibProcessor extends AbstractProcessor {
 		singletonService = new SingletonService();
 		threadTemplateService = new ThreadTemplateService();
 		generateRepositoriesService = new GenerateRepositoriesService(classFinder, types);
+		generateControllersService = new GenerateControllersService(classFinder,types);
+
+		initOperations(); //must be last
 	}
 
 	private void setProjectPath(Filer filer) {
@@ -99,6 +110,29 @@ public class AnnLibProcessor extends AbstractProcessor {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	private void initOperations() {
+		operations = new HashMap<>();
+		operations.put(Singleton.class.getSimpleName(), o -> singletonService.processAnnotation(o.getAnnotatedElement(), o.getPath(), Singleton.class));
+		operations.put(ThreadTemplate.class.getSimpleName(), o -> threadTemplateService.processAnnotation(o.getAnnotatedElement(), o.getPath(), ThreadTemplate.class));
+		operations.put(GenerateRepositories.class.getSimpleName(), o -> generateRepositoriesService.processAnnotation(o.getAnnotatedElement(), o.getPath(), GenerateRepositories.class));
+		operations.put(GenerateControllers.class.getSimpleName(), o -> generateControllersService.processAnnotation(o.getAnnotatedElement(), o.getPath(), GenerateControllers.class));
+	}
+
+	private class OperationDTO {
+		private final Element annotatedElement;
+		private final Path path;
+
+		public OperationDTO(Element annotatedElement, Path path) {
+			this.annotatedElement = annotatedElement;
+			this.path = path;
+		}
+
+		//@formatter:off
+		public Element getAnnotatedElement() {return annotatedElement;}
+		public Path getPath() {return path;}
+		//@formatter:on
 	}
 
 	@Override
@@ -119,34 +153,22 @@ public class AnnLibProcessor extends AbstractProcessor {
 				}
 
 				log(path.toString(), Kind.NOTE);
-				String newCode = "no code";
-				try {
-					switch (annotation.getSimpleName().toString()) {
-						case "Singleton" : {
-							start = System.currentTimeMillis();
-							newCode = singletonService.processAnnotation(element, path, Singleton.class);
-							log("Singleton: " + (System.currentTimeMillis() - start) + "[ms]", Kind.NOTE);
-							break;
-						}
-						case "ThreadTemplate" : {
-							start = System.currentTimeMillis();
-							newCode = threadTemplateService.processAnnotation(element, path, element.getSimpleName().toString());
-							log("ThreadTemplate: " + (System.currentTimeMillis() - start) + "[ms]", Kind.NOTE);
-							break;
-						}
-						case "GenerateRepositories" : {
-							start = System.currentTimeMillis();
-							newCode = generateRepositoriesService.processAnnotation(element, path, GenerateRepositories.class);
-							log("GenerateRepositories: " + (System.currentTimeMillis() - start) + "[ms]", Kind.NOTE);
-							break;
-						}
-						default :
-							break;
-					}
+				
+				String newCode = NO_CODE;
+				OperationDTO operationDTO = new OperationDTO(element, path);
+				start = System.currentTimeMillis();
+				Function<OperationDTO, String> op = operations.get(annotation.getSimpleName().toString());
+				if(op == null)
+					log("Annotation" + annotation.getSimpleName() + "has no processing service!", Kind.NOTE);
+				else {
+					try {
+						newCode = op.apply(operationDTO);
+						log(annotation.getSimpleName() + ": " + (System.currentTimeMillis() - start) + "[ms]", Kind.NOTE);
 
-					rewriteCodeIfChanged(path.toFile(), newCode);
-				} catch (AnnotationException ae) {
-					messager.printMessage(Kind.ERROR, ae.getMessage(), ae.getAnnotatedElement(), getAnnotationMirror(ae.getAnnotatedElement(), ae.getAnnotationClass()));
+						rewriteCodeIfChanged(path.toFile(), newCode);
+					} catch (AnnotationException ae) {
+						messager.printMessage(Kind.ERROR, ae.getMessage(), ae.getAnnotatedElement(), getAnnotationMirror(ae.getAnnotatedElement(), ae.getAnnotationClass()));
+					}
 				}
 			}
 		}
@@ -154,7 +176,7 @@ public class AnnLibProcessor extends AbstractProcessor {
 	}
 
 	private void rewriteCodeIfChanged(File file, String newCode) {
-		if(newCode.equals("no code") == false) {
+		if(newCode.equals(NO_CODE) == false) {
 			try (BufferedWriter bw = new BufferedWriter(new FileWriter(file))) {
 				bw.write(newCode);
 			} catch (IOException e) {
@@ -181,9 +203,9 @@ public class AnnLibProcessor extends AbstractProcessor {
 	@Override
 	public Set<String> getSupportedAnnotationTypes() {
 		Set<String> result = new HashSet<>();
-		result.add(Singleton.class.getCanonicalName());
-		result.add(ThreadTemplate.class.getCanonicalName());
-		result.add(GenerateRepositories.class.getCanonicalName());
+		result.addAll(operations.keySet().stream()//
+			.map(i -> "application.annotations." + i)//
+			.collect(Collectors.toSet()));
 		return result;
 	}
 

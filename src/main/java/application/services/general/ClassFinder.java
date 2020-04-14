@@ -1,4 +1,4 @@
-package application.services;
+package application.services.general;
 
 import java.io.File;
 import java.lang.annotation.Annotation;
@@ -27,12 +27,12 @@ public class ClassFinder {
 	private String projectPath;
 	private String sourceFolderName;
 	private Elements elements;
-	
-	public ClassFinder(String projectPath,Elements elements) {
+
+	public ClassFinder(String projectPath, Elements elements) {
 		this.projectPath = projectPath;
-		this.elements=elements;
+		this.elements = elements;
 	}
-	
+
 	//@formatter:off
 	public void setSourceFolderName(String sourceFolderName) {this.sourceFolderName = sourceFolderName;}
 	public <T extends Annotation> void setAnnotationCls(Class<T> annotationCls) {this.annotationCls = annotationCls;}
@@ -42,33 +42,41 @@ public class ClassFinder {
 
 	public List<TypeElement> getAnnotatedClassesFromPackage(String packageName, String lookForAnnotation) throws AnnotationException {
 		List<TypeElement> entityClasses = new ArrayList<>();
-		packageName=packageName.replace("/", ".");
+		packageName = packageName.replace("/", ".");
 		File folder = getPackageFileBasedOnName(packageName);
-		
+
 		if(folder != null) {
-			TypeElement cls = null;
+			TypeElement typeElement = null;
 			for(File file:folder.listFiles()) {
 				if(isFileJavaClass(file)) {
-					cls=elements.getTypeElement(packageName + "." + getFileNameWithoutExtention(file));
-					if(cls != null && cls.getKind().equals(ElementKind.CLASS) && cls.getModifiers().contains(Modifier.ABSTRACT)==false) {
-						for(AnnotationMirror a:cls.getAnnotationMirrors()) {
-							if(a.getAnnotationType().asElement().getSimpleName().toString().equals(lookForAnnotation)) {
-								entityClasses.add(cls);
-								break;
-							}
-						}
+					typeElement = elements.getTypeElement(packageName + "." + getFileNameWithoutExtention(file));
+					if(isClassNotAbstractClass(typeElement) && isClassAnnotatedWith(lookForAnnotation, typeElement)) {
+						entityClasses.add(typeElement);
 					}
 				}
 			}
 		}
 		if(entityClasses.isEmpty())
-			throw new AnnotationException(MessageFormat.format(NO_ANNOTATED_CLASS_IN_PACKAGE, packageName, lookForAnnotation), annotationElement, annotationCls);
+			throw new AnnotationException(MessageFormat.format(NO_ANNOTATED_CLASS_IN_PACKAGE, //
+				packageName, lookForAnnotation), annotationElement, annotationCls);
 		return entityClasses;
 	}
 
+	private boolean isClassNotAbstractClass(TypeElement typeElement) {
+		return typeElement != null && typeElement.getKind().equals(ElementKind.CLASS) && typeElement.getModifiers().contains(Modifier.ABSTRACT) == false;
+	}
+
+	private boolean isClassAnnotatedWith(String annotationName, Element typeElement) {
+		for(AnnotationMirror a:typeElement.getAnnotationMirrors()) {
+			if(a.getAnnotationType().asElement().getSimpleName().toString().equals(annotationName))
+				return true;
+		}
+		return false;
+	}
+
 	private File getPackageFileBasedOnName(String packageName) throws AnnotationException {
-		Path path=Paths.get(projectPath+sourceFolderName+"/"+packageName.replace(".", "/"));
-		if(Files.exists(path)==false)
+		Path path = Paths.get(projectPath + sourceFolderName + "/" + packageName.replace(".", "/"));
+		if(Files.exists(path) == false)
 			throw new AnnotationException(MessageFormat.format(PACKAGE_NOT_FOUND, packageName), annotationElement, annotationCls);
 		return path.toFile();
 	}

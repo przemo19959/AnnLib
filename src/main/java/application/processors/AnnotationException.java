@@ -5,7 +5,7 @@ import java.lang.annotation.Annotation;
 import javax.lang.model.element.Element;
 
 @SuppressWarnings("serial")
-public class AnnotationException extends Exception {
+public class AnnotationException extends RuntimeException {
 	private final String message;
 	private final Element annotatedElement;
 	private final Class<? extends Annotation> annotationClass;
