@@ -27,10 +27,10 @@ import com.github.javaparser.ast.type.TypeParameter;
 
 import application.annotations.GenerateRepositories;
 import application.services.general.ClassFinder;
-import application.services.general.ProcessorTemplate;
+import application.services.general.ServiceTemplate;
 import application.services.general.Utils;
 
-public class GenerateRepositoriesService extends ProcessorTemplate<GenerateRepositories> {
+public class GenerateRepositoriesService extends ServiceTemplate<GenerateRepositories> {
 	private static final String SUFFIX_ERROR = "Suffix must not contain spaces and be empty!";
 	private static final String GENERIC_PARAM_ERROR = "Interface \"{0}\" don''t have two generic parameters!";
 	private static final String NOT_INTERFACE = "Object \"{0}\" is not interface!";

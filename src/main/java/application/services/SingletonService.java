@@ -18,12 +18,12 @@ import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
 
 import application.annotations.Singleton;
-import application.services.general.ProcessorTemplate;
+import application.services.general.ServiceTemplate;
 import application.services.general.Utils;
 
 import static application.processors.AnnLibProcessor.FIELD_NAME_PATTERN;
 
-public class SingletonService extends ProcessorTemplate<Singleton> {
+public class SingletonService extends ServiceTemplate<Singleton> {
 	private static final String METHOD_NAME_USED_ERROR = "Method name: \"{0}\" is assigned for another method!";
 	private static final String METHOD_NAME_ERROR = "Method name: \"{0}\" violates Java naming rules!";
 	private static final String FIELD_NAME_ERROR = "Field name: \"{0}\" violates Java naming rules!";

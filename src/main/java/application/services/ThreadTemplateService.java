@@ -19,10 +19,10 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 import application.annotations.ThreadTemplate;
 import application.processors.AnnotationException;
-import application.services.general.ProcessorTemplate;
+import application.services.general.ServiceTemplate;
 import application.services.general.Utils;
 
-public class ThreadTemplateService extends ProcessorTemplate<ThreadTemplate> {
+public class ThreadTemplateService extends ServiceTemplate<ThreadTemplate> {
 
 	//annotation fields
 	private String threadName;

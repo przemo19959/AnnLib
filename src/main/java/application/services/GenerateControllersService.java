@@ -27,10 +27,10 @@ import com.github.javaparser.ast.expr.StringLiteralExpr;
 
 import application.annotations.GenerateControllers;
 import application.services.general.ClassFinder;
-import application.services.general.ProcessorTemplate;
+import application.services.general.ServiceTemplate;
 import application.services.general.Utils;
 
-public class GenerateControllersService extends ProcessorTemplate<GenerateControllers> {
+public class GenerateControllersService extends ServiceTemplate<GenerateControllers> {
 	private static final String EMPTY_DOMAIN_PATH = "Domain package path attribute must not be empty!";
 	private static final String LOOK_FOR_ANNOTATION = "Entity";
 	private static final String EMPTY_CONTROLLER_PATH = "Controller package path attribute must not be empty!";
